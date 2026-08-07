@@ -1,4 +1,169 @@
-// Intentionally empty by default.
-// Add Drizzle tables here when the site actually needs a database.
-// See examples/d1/db/schema.ts for an opt-in example.
-export {};
+export const schemaStatements = [
+  `CREATE TABLE IF NOT EXISTS users (
+    id uuid PRIMARY KEY,
+    email text NOT NULL UNIQUE,
+    password_hash text NOT NULL,
+    name text NOT NULL,
+    phone text NOT NULL DEFAULT '',
+    instrument text NOT NULL DEFAULT '',
+    role text NOT NULL DEFAULT 'member' CHECK (role IN ('member','volunteer_admin','webmaster')),
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','pending','inactive')),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS sessions (
+    id uuid PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash text NOT NULL UNIQUE,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS events (
+    id uuid PRIMARY KEY,
+    title text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    location text NOT NULL,
+    starts_at timestamptz NOT NULL,
+    ends_at timestamptz NOT NULL,
+    capacity integer NOT NULL DEFAULT 20 CHECK (capacity > 0),
+    service_minutes integer NOT NULL DEFAULT 0 CHECK (service_minutes >= 0),
+    status text NOT NULL DEFAULT 'open' CHECK (status IN ('draft','open','closed','completed','cancelled')),
+    created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS event_signups (
+    id uuid PRIMARY KEY,
+    event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status text NOT NULL DEFAULT 'signed_up' CHECK (status IN ('signed_up','attended','cancelled','no_show')),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE(event_id, user_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS service_hours (
+    id uuid PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_id uuid REFERENCES events(id) ON DELETE SET NULL,
+    activity text NOT NULL,
+    service_date date NOT NULL,
+    minutes integer NOT NULL CHECK (minutes > 0),
+    notes text NOT NULL DEFAULT '',
+    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','verified','rejected')),
+    verified_by uuid REFERENCES users(id) ON DELETE SET NULL,
+    verified_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS stories (
+    id uuid PRIMARY KEY,
+    author_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title text NOT NULL,
+    excerpt text NOT NULL DEFAULT '',
+    body text NOT NULL,
+    cover_url text NOT NULL DEFAULT '',
+    status text NOT NULL DEFAULT 'submitted' CHECK (status IN ('draft','submitted','published','rejected')),
+    reviewer_id uuid REFERENCES users(id) ON DELETE SET NULL,
+    published_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS content_entries (
+    key text PRIMARY KEY,
+    value text NOT NULL,
+    page text NOT NULL,
+    label text NOT NULL,
+    field_type text NOT NULL DEFAULT 'text',
+    updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS media_assets (
+    id uuid PRIMARY KEY,
+    filename text NOT NULL,
+    storage_key text NOT NULL UNIQUE,
+    public_url text NOT NULL,
+    mime_type text NOT NULL,
+    byte_size integer NOT NULL,
+    alt_text text NOT NULL DEFAULT '',
+    uploaded_by uuid REFERENCES users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS site_settings (
+    key text PRIMARY KEY,
+    value text NOT NULL,
+    is_public boolean NOT NULL DEFAULT false,
+    updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS contact_messages (
+    id uuid PRIMARY KEY,
+    name text NOT NULL,
+    email text NOT NULL,
+    interest text NOT NULL,
+    message text NOT NULL,
+    status text NOT NULL DEFAULT 'new' CHECK (status IN ('new','read','replied','archived')),
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS newsletter_subscribers (
+    id uuid PRIMARY KEY,
+    email text NOT NULL UNIQUE,
+    status text NOT NULL DEFAULT 'active',
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS audit_log (
+    id uuid PRIMARY KEY,
+    actor_id uuid REFERENCES users(id) ON DELETE SET NULL,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id text NOT NULL,
+    details text NOT NULL DEFAULT '{}',
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS sessions_token_hash_idx ON sessions(token_hash)`,
+  `CREATE INDEX IF NOT EXISTS events_starts_at_idx ON events(starts_at)`,
+  `CREATE INDEX IF NOT EXISTS signups_user_idx ON event_signups(user_id)`,
+  `CREATE INDEX IF NOT EXISTS hours_user_idx ON service_hours(user_id)`,
+  `CREATE INDEX IF NOT EXISTS stories_status_idx ON stories(status)`,
+];
+
+export const editableContentDefaults = [
+  ["site.name", "Inspire With Music", "Global", "Site name", "text"],
+  ["site.organization", "Ivy Chamber Strings", "Global", "Legal organization name", "text"],
+  ["site.logo_url", "", "Global", "Logo image", "image"],
+  ["home.hero_eyebrow", "YOUTH-LED · MUSIC-DRIVEN · COMMUNITY-FOCUSED", "Homepage", "Hero eyebrow", "text"],
+  ["home.hero_title", "Music in Action. Youth in Service.", "Homepage", "Hero headline", "text"],
+  ["home.hero_text", "Empowering young musicians to share their talents, serve their communities, and make a difference through music.", "Homepage", "Hero supporting text", "textarea"],
+  ["home.hero_image", "", "Homepage", "Hero image", "image"],
+  ["home.who_title", "We turn a passion for music into meaningful service.", "Homepage", "Who we are heading", "text"],
+  ["home.who_body", "Ivy Chamber Strings is a youth-led nonprofit creating opportunities for young people to lead, connect, and make a difference through performance, education, mentorship, and community outreach.", "Homepage", "Who we are body", "textarea"],
+  ["home.story_title", "Every note has led us here.", "Homepage", "Story heading", "text"],
+  ["home.story_body", "From serving our local communities to connecting with audiences around the world, our journey has been shaped by music, service, and a growing community of young musicians.", "Homepage", "Story summary", "textarea"],
+  ["home.leaders_json", "[{\"name\":\"Avery Chen\",\"role\":\"Youth President · Violin\",\"image\":\"https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=700&q=85\"},{\"name\":\"Ethan Lin\",\"role\":\"Program Lead · Cello\",\"image\":\"https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=700&q=85\"},{\"name\":\"Mia Patel\",\"role\":\"Community Lead · Piano\",\"image\":\"https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=700&q=85\"},{\"name\":\"Lucas Park\",\"role\":\"Mentorship Lead · Viola\",\"image\":\"https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=700&q=85\"}]", "Homepage", "Youth leaders (JSON list)", "textarea"],
+  ["home.services_json", "[{\"title\":\"PERFORM\",\"text\":\"Bringing music into our communities.\",\"icon\":\"♩\"},{\"title\":\"TEACH\",\"text\":\"Sharing music through lessons and workshops.\",\"icon\":\"♫\"},{\"title\":\"MENTOR\",\"text\":\"Helping young musicians learn and grow.\",\"icon\":\"♬\"},{\"title\":\"SERVE\",\"text\":\"Giving back through music and community projects.\",\"icon\":\"♪\"}]", "Homepage", "What we do cards (JSON list)", "textarea"],
+  ["home.join_title", "Your talent can change the tempo.", "Homepage", "Join heading", "text"],
+  ["about.hero_title", "A love of music. A call to serve.", "About", "Page headline", "text"],
+  ["about.hero_text", "We believe young people are not only future leaders—they are powerful leaders right now.", "About", "Page introduction", "textarea"],
+  ["about.mission", "We make space for young musicians to lead with heart.", "About", "Mission heading", "text"],
+  ["about.body", "Ivy Chamber Strings is a 501(c)(3) nonprofit youth orchestra and chamber music program serving students ages 6 to 17 in Orange County. We connect musical growth with purposeful service.", "About", "Mission body", "textarea"],
+  ["volunteers.hero_title", "Many instruments. One shared purpose.", "Volunteers", "Page headline", "text"],
+  ["volunteers.hero_text", "Meet the young people turning rehearsal-room discipline into real-world compassion.", "Volunteers", "Page introduction", "textarea"],
+  ["programs.hero_title", "Music that moves into the world.", "Programs", "Page headline", "text"],
+  ["programs.hero_text", "Four youth-led programs. Countless ways to connect.", "Programs", "Page introduction", "textarea"],
+  ["programs.items_json", "[{\"number\":\"01\",\"title\":\"Music Exchange\",\"text\":\"Sharing sheet music, music books, and learning resources with the community.\"},{\"number\":\"02\",\"title\":\"Free Music Workshops\",\"text\":\"Making joyful, high-quality music education more accessible to every learner.\"},{\"number\":\"03\",\"title\":\"Community Performances\",\"text\":\"Bringing live music to senior centers, schools, hospitals, and public spaces.\"},{\"number\":\"04\",\"title\":\"Youth Mentorship\",\"text\":\"Young musicians helping the next generation find confidence and grow.\"}]", "Programs", "Program cards (JSON list)", "textarea"],
+  ["stories.hero_title", "The moments between the notes.", "Stories", "Page headline", "text"],
+  ["stories.hero_text", "Student-written stories, photos, and reflections from a community in motion.", "Stories", "Page introduction", "textarea"],
+  ["impact.hero_title", "What service sounds like.", "Impact", "Page headline", "text"],
+  ["impact.hero_text", "Hours are part of the story. People, confidence, connection, and access complete it.", "Impact", "Page introduction", "textarea"],
+  ["impact.volunteers", "120", "Impact", "Youth volunteers", "number"],
+  ["impact.hours", "3800", "Impact", "Service hours", "number"],
+  ["impact.events", "86", "Impact", "Community events", "number"],
+  ["impact.people", "12000", "Impact", "People reached", "number"],
+  ["join.hero_title", "Bring what you love. Leave an echo.", "Join", "Page headline", "text"],
+  ["join.hero_text", "Volunteer, partner, or bring a program to your community. Your next step starts here.", "Join", "Page introduction", "textarea"],
+  ["donate.hero_title", "Help the next generation be heard.", "Donate", "Page headline", "text"],
+  ["donate.hero_text", "Your support helps us expand youth-led music programs, community performances, educational opportunities, and access to music.", "Donate", "Page introduction", "textarea"],
+  ["donate.zelle", "Add verified Zelle information", "Donate", "Zelle information", "textarea"],
+  ["donate.paypal_url", "", "Donate", "PayPal donation URL", "url"],
+  ["donate.materials_url", "", "Donate", "Music materials form URL", "url"],
+  ["footer.contact_email", "hello@inspirewithmusic.org", "Footer", "Contact email", "email"],
+  ["footer.instagram_url", "", "Footer", "Instagram URL", "url"],
+  ["footer.youtube_url", "", "Footer", "YouTube URL", "url"],
+] as const;

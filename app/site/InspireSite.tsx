@@ -41,14 +41,15 @@ function Header({ route }: { route: Route }) {
   const [open, setOpen] = useState(false);
   return <header className="site-header">
     <Logo />
-    <nav className={open ? "nav-open" : ""} aria-label="Primary navigation">
+    <nav id="primary-navigation" className={open ? "nav-open" : ""} aria-label="Primary navigation">
       {nav.map(item => <button key={item.route} className={route === item.route ? "active" : ""} onClick={() => { go(item.route); setOpen(false); }}>{item.label}</button>)}
+      <button className="mobile-login-link" onClick={() => { go("login"); setOpen(false); }}>Member login</button>
     </nav>
     <div className="header-actions">
       <button className="login-link" onClick={() => go("login")}>Member login</button>
       <button className="donate-nav" onClick={() => go("donate")}>Donate <Arrow diagonal /></button>
     </div>
-    <button className="menu-button" onClick={() => setOpen(!open)} aria-label="Toggle menu"><span/><span/></button>
+    <button className="menu-button" onClick={() => setOpen(!open)} aria-label={open ? "Close menu" : "Open menu"} aria-expanded={open} aria-controls="primary-navigation"><span/><span/></button>
   </header>;
 }
 

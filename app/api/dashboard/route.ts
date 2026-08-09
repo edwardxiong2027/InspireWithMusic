@@ -1,5 +1,0 @@
-import { query } from "@/db";
-import { requireUser } from "@/lib/auth";
-import { apiError } from "@/lib/api";
-export const runtime="nodejs";
-export async function GET(){try{const user=await requireUser();if(user.role==="member"){const totals=await query<{verified_minutes:number;pending_minutes:number}>(`SELECT COALESCE(sum(CASE WHEN status='verified' THEN minutes ELSE 0 END),0)::int verified_minutes,COALESCE(sum(CASE WHEN status='pending' THEN minutes ELSE 0 END),0)::int pending_minutes FROM service_hours WHERE user_id=$1`,[user.id]);return Response.json({user,totals:totals.rows[0]});}const stats=await query<{members:number;verified_minutes:number;events:number;stories_pending:number}>(`SELECT (SELECT count(*)::int FROM users WHERE role='member' AND status='active') members,(SELECT COALESCE(sum(minutes),0)::int FROM service_hours WHERE status='verified') verified_minutes,(SELECT count(*)::int FROM events) events,(SELECT count(*)::int FROM stories WHERE status='submitted') stories_pending`);return Response.json({user,stats:stats.rows[0]});}catch(error){return apiError(error)}}

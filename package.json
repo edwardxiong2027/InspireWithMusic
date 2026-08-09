@@ -9,25 +9,24 @@
     "dev": "next dev",
     "build": "next build",
     "build:pages": "vite build --config vite.pages.config.ts",
+    "build:firebase": "vite build --config vite.pages.config.ts --base /",
     "start": "next start",
-    "test": "tsx --test tests/*.test.ts && node --test tests/*.test.mjs",
+    "test": "node --test tests/rendered-html.test.mjs",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-inspirewithmusic \"node --test tests/firebase-rules.test.mjs\"",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:init": "tsx scripts/init-db.ts",
-    "db:seed": "tsx scripts/seed.ts"
+    "firebase:serve": "npm run build:firebase && firebase emulators:start --only hosting,auth,firestore,storage",
+    "firebase:deploy": "npm run build:firebase && firebase deploy"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1106.0",
-    "@electric-sql/pglite": "^0.5.4",
+    "firebase": "^12.17.1",
     "next": "^16.3.0",
-    "pg": "^8.22.0",
     "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "zod": "^4.4.3"
+    "react-dom": "19.2.6"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
-    "@types/pg": "^8.21.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",

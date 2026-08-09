@@ -42,3 +42,8 @@ next-env.d.ts
 /work/
 /data/
 /uploads/
+/.firebase/
+firebase-debug.log
+firestore-debug.log
+storage-debug.log
+ui-debug.log

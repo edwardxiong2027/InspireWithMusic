@@ -1,0 +1,138 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function activeUser() {
+      return signedIn() && currentProfile().status == "active";
+    }
+
+    function volunteerAdmin() {
+      return activeUser() && currentProfile().role in ["volunteer_admin", "webmaster"];
+    }
+
+    function webmaster() {
+      return activeUser() && currentProfile().role == "webmaster";
+    }
+
+    function bootstrapWebmaster() {
+      return request.auth.token.email == "inspirewithmusic.org@gmail.com"
+        && request.auth.token.email_verified == true;
+    }
+
+    match /users/{userId} {
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.status == "active"
+        && (
+          request.resource.data.role == "member"
+          || (request.resource.data.role == "webmaster" && bootstrapWebmaster())
+        );
+      allow read: if signedIn() && (request.auth.uid == userId || volunteerAdmin());
+      allow update: if webmaster()
+        || (volunteerAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updated_at"])
+          && request.resource.data.status in ["active", "pending", "inactive"])
+        || (signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "phone", "instrument", "updated_at"]));
+      allow delete: if false;
+    }
+
+    match /content/{contentId} {
+      allow read: if true;
+      allow create, update, delete: if webmaster();
+    }
+
+    match /events/{eventId} {
+      allow read: if true;
+      allow create, delete: if volunteerAdmin();
+      allow update: if volunteerAdmin()
+        || (activeUser()
+          && currentProfile().role == "member"
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["signup_count", "updated_at"])
+          && request.resource.data.signup_count >= 0
+          && request.resource.data.signup_count <= resource.data.capacity
+          && (
+            (request.resource.data.signup_count == resource.data.signup_count + 1
+              && existsAfter(/databases/$(database)/documents/events/$(eventId)/signups/$(request.auth.uid)))
+            || (request.resource.data.signup_count == resource.data.signup_count - 1
+              && !existsAfter(/databases/$(database)/documents/events/$(eventId)/signups/$(request.auth.uid)))
+          ));
+
+      match /signups/{userId} {
+        allow read: if activeUser() && (request.auth.uid == userId || volunteerAdmin());
+        allow create: if activeUser()
+          && request.auth.uid == userId
+          && request.resource.data.user_id == request.auth.uid
+          && get(/databases/$(database)/documents/events/$(eventId)).data.status == "open";
+        allow delete: if activeUser() && (request.auth.uid == userId || volunteerAdmin());
+        allow update: if volunteerAdmin();
+      }
+    }
+
+    match /service_hours/{hourId} {
+      allow read: if activeUser() && (resource.data.user_id == request.auth.uid || volunteerAdmin());
+      allow create: if activeUser()
+        && currentProfile().role == "member"
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.status == "pending"
+        && request.resource.data.minutes > 0;
+      allow update: if volunteerAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "verified_by", "verified_at", "updated_at"])
+        && request.resource.data.status in ["verified", "rejected"];
+      allow delete: if false;
+    }
+
+    match /stories/{storyId} {
+      allow read: if resource.data.status == "published"
+        || (activeUser() && resource.data.author_id == request.auth.uid)
+        || webmaster();
+      allow create: if activeUser()
+        && currentProfile().role == "member"
+        && request.resource.data.author_id == request.auth.uid
+        && request.resource.data.status == "submitted";
+      allow update: if webmaster()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "reviewer_id", "published_at", "updated_at"]);
+      allow delete: if webmaster();
+    }
+
+    match /media_assets/{assetId} {
+      allow read: if true;
+      allow create, update, delete: if webmaster();
+    }
+
+    match /contact_messages/{messageId} {
+      allow create: if request.resource.data.keys().hasOnly(["name", "email", "interest", "message", "status", "created_at"])
+        && request.resource.data.status == "new"
+        && request.resource.data.name is string
+        && request.resource.data.email is string
+        && request.resource.data.message is string
+        && request.resource.data.message.size() >= 10;
+      allow read, update, delete: if webmaster();
+    }
+
+    match /newsletter_subscribers/{subscriberId} {
+      allow create: if request.resource.data.keys().hasOnly(["email", "status", "created_at"])
+        && request.resource.data.status == "active"
+        && request.resource.data.email is string;
+      allow read, update, delete: if webmaster();
+    }
+
+    match /settings/{settingId} {
+      allow read, create, update, delete: if webmaster();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

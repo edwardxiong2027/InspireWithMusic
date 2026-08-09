@@ -1,9 +1,0 @@
-import { z } from "zod";
-import { query } from "@/db";
-import { requireUser } from "@/lib/auth";
-import { apiError, bodyJson } from "@/lib/api";
-import { audit } from "@/lib/audit";
-export const runtime = "nodejs";
-const schema = z.object({ title:z.string().min(3).max(180).optional(),description:z.string().max(5000).optional(),location:z.string().min(2).max(240).optional(),startsAt:z.string().datetime().optional(),endsAt:z.string().datetime().optional(),capacity:z.coerce.number().int().min(1).max(1000).optional(),serviceMinutes:z.coerce.number().int().min(0).max(1440).optional(),status:z.enum(["draft","open","closed","completed","cancelled"]).optional() });
-export async function PATCH(request:Request,{params}:{params:Promise<{id:string}>}){try{const user=await requireUser(["volunteer_admin","webmaster"]);const {id}=await params;const input=schema.parse(await bodyJson(request));const fields:{[key:string]:unknown}={title:input.title,description:input.description,location:input.location,starts_at:input.startsAt,ends_at:input.endsAt,capacity:input.capacity,service_minutes:input.serviceMinutes,status:input.status};const pairs=Object.entries(fields).filter(([,v])=>v!==undefined);if(!pairs.length)return Response.json({ok:true});const values=pairs.map(([,v])=>v);values.push(id);await query(`UPDATE events SET ${pairs.map(([k],i)=>`${k}=$${i+1}`).join(",")},updated_at=now() WHERE id=$${values.length}`,values);await audit(user.id,"event.update","event",id,input);return Response.json({ok:true});}catch(error){return apiError(error)}}
-export async function DELETE(_:Request,{params}:{params:Promise<{id:string}>}){try{const user=await requireUser(["volunteer_admin","webmaster"]);const {id}=await params;await query(`DELETE FROM events WHERE id=$1`,[id]);await audit(user.id,"event.delete","event",id);return Response.json({ok:true});}catch(error){return apiError(error)}}

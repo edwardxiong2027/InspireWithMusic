@@ -1,0 +1,22 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function webmaster() {
+      return request.auth != null
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.status == "active"
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "webmaster";
+    }
+
+    match /media/{fileName} {
+      allow read: if true;
+      allow write: if webmaster()
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches("image/.*");
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

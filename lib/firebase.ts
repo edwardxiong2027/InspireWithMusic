@@ -4,11 +4,15 @@ import { initializeApp, getApps } from "firebase/app";
 import {
   browserLocalPersistence,
   createUserWithEmailAndPassword,
+  getRedirectResult,
   getAuth,
+  GoogleAuthProvider,
   onAuthStateChanged,
   sendEmailVerification,
   setPersistence,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  signInWithRedirect,
   signOut,
   type User,
 } from "firebase/auth";
@@ -45,6 +49,8 @@ const app = getApps()[0] ?? initializeApp(firebaseConfig);
 export const firebaseAuth = getAuth(app);
 export const firestore = getFirestore(app);
 export const firebaseStorage = getStorage(app);
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({prompt:"select_account"});
 
 if (typeof window !== "undefined") void setPersistence(firebaseAuth, browserLocalPersistence);
 
@@ -65,6 +71,9 @@ function friendlyError(error: unknown) {
     "auth/email-already-in-use": "An account already exists for this email.",
     "auth/invalid-credential": "The email or password is incorrect.",
     "auth/invalid-email": "Enter a valid email address.",
+    "auth/popup-closed-by-user": "Google sign-in was cancelled.",
+    "auth/popup-blocked": "Your browser blocked Google sign-in. Please allow pop-ups and try again.",
+    "auth/account-exists-with-different-credential": "An account already exists for this email. Sign in with its original method first.",
     "auth/weak-password": "Choose a stronger password with at least 10 characters.",
     "auth/too-many-requests": "Too many attempts. Please wait and try again.",
     "permission-denied": "You do not have permission to perform this action.",
@@ -113,6 +122,33 @@ async function ensureProfile(user: User, initial?: {name?:string;instrument?:str
   return sessionFrom(user, profile);
 }
 
+async function finishGoogleLogin(user: User) {
+  await user.reload();
+  await user.getIdToken(true);
+  const session = await ensureProfile(user,{name:user.displayName??""});
+  if (session.role === "webmaster") await ensureFirebaseSeed();
+  return session;
+}
+
+export async function completeGoogleRedirectLogin() {
+  try {
+    const result = await getRedirectResult(firebaseAuth);
+    return result ? await finishGoogleLogin(result.user) : null;
+  } catch (error) { throw friendlyError(error); }
+}
+
+export async function loginWithGoogle() {
+  try {
+    const mobile = typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches;
+    if (mobile) {
+      await signInWithRedirect(firebaseAuth,googleProvider);
+      return null;
+    }
+    const credential = await signInWithPopup(firebaseAuth,googleProvider);
+    return await finishGoogleLogin(credential.user);
+  } catch (error) { throw friendlyError(error); }
+}
+
 async function requireSession(roles?: Role[]) {
   const user = await authUser();
   if (!user) throw new Error("Please sign in to continue.");
@@ -122,21 +158,13 @@ async function requireSession(roles?: Role[]) {
   return session;
 }
 
-const sampleEvents = [
-  {title:"Music Exchange Sorting Day",description:"Sort and prepare donated sheet music and learning materials for community distribution.",location:"Yorba Linda Community Center",starts_at:"2026-09-12T17:00:00.000Z",ends_at:"2026-09-12T20:00:00.000Z",capacity:24,service_minutes:180,status:"open",signup_count:0},
-  {title:"Young Strings Workshop",description:"Welcome beginner musicians and help with instruments, rhythm activities, and ensemble practice.",location:"OC Music & Dance",starts_at:"2026-09-20T21:00:00.000Z",ends_at:"2026-09-20T23:30:00.000Z",capacity:18,service_minutes:150,status:"open",signup_count:0},
-  {title:"Community Performance",description:"Share a warm chamber performance with residents and families.",location:"Sunset Senior Center",starts_at:"2026-10-04T22:30:00.000Z",ends_at:"2026-10-05T00:30:00.000Z",capacity:16,service_minutes:120,status:"open",signup_count:0},
-];
-
 async function ensureFirebaseSeed() {
   await requireSession(["webmaster"]);
   const contentSnapshot = await getDocs(collection(firestore,"content"));
   const existing = new Set(contentSnapshot.docs.map(item=>item.id));
-  const eventSnapshot = await getDocs(collection(firestore,"events"));
   const settingsSnapshot = await getDoc(doc(firestore,"settings","site"));
   const batch = writeBatch(firestore);
   for (const entry of defaultContentEntries) if (!existing.has(entry.key)) batch.set(doc(firestore,"content",entry.key), {...entry,updated_at:now()});
-  if (eventSnapshot.empty) for (const event of sampleEvents) batch.set(doc(collection(firestore,"events")), {...event,created_at:now(),updated_at:now()});
   if (!settingsSnapshot.exists()) batch.set(doc(firestore,"settings","site"), {project_id:firebaseConfig.projectId,storage_bucket:firebaseConfig.storageBucket,from_email:"hello@inspirewithmusic.org",updated_at:now()});
   await batch.commit();
 }
@@ -247,7 +275,7 @@ export async function firebaseApi<T>(url: string, options?: FirebaseApiOptions):
     }
     const eventMatch = url.match(/^\/api\/events\/([^/]+)$/);
     if (eventMatch) {
-      await requireSession(["volunteer_admin","webmaster"]); const eventRef=doc(firestore,"events",eventMatch[1]);
+      await requireSession(["webmaster"]); const eventRef=doc(firestore,"events",eventMatch[1]);
       if(method==="PATCH"){await updateDoc(eventRef,{...input,updated_at:now()});return {ok:true} as T;}
       if(method==="DELETE"){const signups=await getDocs(collection(firestore,"events",eventMatch[1],"signups"));const batch=writeBatch(firestore);signups.docs.forEach(item=>batch.delete(item.ref));batch.delete(eventRef);await batch.commit();return {ok:true} as T;}
     }
@@ -257,14 +285,14 @@ export async function firebaseApi<T>(url: string, options?: FirebaseApiOptions):
       const session=await requireSession(["member"]);const created=await addDoc(collection(firestore,"service_hours"),{user_id:session.id,event_id:input.eventId||null,activity:String(input.activity??""),service_date:String(input.serviceDate??""),minutes:Number(input.minutes??0),notes:String(input.notes??""),status:"pending",member_name:session.name,member_email:session.email,created_at:now(),updated_at:now()});return {id:created.id} as T;
     }
     const hourMatch=url.match(/^\/api\/hours\/([^/]+)$/);
-    if(hourMatch&&method==="PATCH"){const reviewer=await requireSession(["volunteer_admin","webmaster"]);await updateDoc(doc(firestore,"service_hours",hourMatch[1]),{status:String(input.status),verified_by:reviewer.id,verified_at:now(),updated_at:now()});return {ok:true} as T;}
+    if(hourMatch&&method==="PATCH"){const reviewer=await requireSession(["webmaster"]);await updateDoc(doc(firestore,"service_hours",hourMatch[1]),{status:String(input.status),verified_by:reviewer.id,verified_at:now(),updated_at:now()});return {ok:true} as T;}
 
     if(url==="/api/profile"&&method==="PATCH"){const session=await requireSession();await updateDoc(doc(firestore,"users",session.id),{name:String(input.name??session.name),phone:String(input.phone??""),instrument:String(input.instrument??""),updated_at:now()});return {ok:true} as T;}
     if(url==="/api/users"&&method==="GET"){
-      await requireSession(["volunteer_admin","webmaster"]);const [usersSnapshot,hoursSnapshot]=await Promise.all([getDocs(collection(firestore,"users")),getDocs(query(collection(firestore,"service_hours"),where("status","==","verified")))]);const totals=new Map<string,number>();hoursSnapshot.docs.forEach(item=>totals.set(String(item.data().user_id),(totals.get(String(item.data().user_id))??0)+Number(item.data().minutes??0)));return {users:usersSnapshot.docs.map(item=>({...withId<SessionUser&{created_at:string}>(item.id,item.data()),verified_minutes:totals.get(item.id)??0}))} as T;
+      await requireSession(["webmaster"]);const [usersSnapshot,hoursSnapshot]=await Promise.all([getDocs(collection(firestore,"users")),getDocs(query(collection(firestore,"service_hours"),where("status","==","verified")))]);const totals=new Map<string,number>();hoursSnapshot.docs.forEach(item=>totals.set(String(item.data().user_id),(totals.get(String(item.data().user_id))??0)+Number(item.data().minutes??0)));return {users:usersSnapshot.docs.map(item=>({...withId<SessionUser&{created_at:string}>(item.id,item.data()),verified_minutes:totals.get(item.id)??0}))} as T;
     }
     const userMatch=url.match(/^\/api\/users\/([^/]+)$/);
-    if(userMatch&&method==="PATCH"){const actor=await requireSession(["volunteer_admin","webmaster"]);const change:Json={updated_at:now()};if(input.status)change.status=input.status;if(input.role&&actor.role==="webmaster")change.role=input.role;await updateDoc(doc(firestore,"users",userMatch[1]),change);return {ok:true} as T;}
+    if(userMatch&&method==="PATCH"){await requireSession(["webmaster"]);const change:Json={updated_at:now()};if(input.status)change.status=input.status;if(input.role)change.role=input.role;await updateDoc(doc(firestore,"users",userMatch[1]),change);return {ok:true} as T;}
 
     if(url==="/api/stories"&&method==="GET"){
       const session=await requireSession();let source;if(session.role==="webmaster")source=collection(firestore,"stories");else if(session.role==="member")source=query(collection(firestore,"stories"),where("author_id","==",session.id));else source=query(collection(firestore,"stories"),where("status","==","published"));const snapshot=await getDocs(source);return {stories:sortNewest(snapshot.docs.map(item=>withId<{id:string;created_at:string}&Json>(item.id,item.data())))} as T;
@@ -281,7 +309,7 @@ export async function firebaseApi<T>(url: string, options?: FirebaseApiOptions):
     if(url==="/api/settings"&&method==="PUT"){await requireSession(["webmaster"]);await setDoc(doc(firestore,"settings","site"),{...(input.settings as Json),updated_at:now()},{merge:true});return {ok:true} as T;}
 
     if(url==="/api/dashboard"){
-      const session=await requireSession();const hours=await getDocs(session.role==="member"?query(collection(firestore,"service_hours"),where("user_id","==",session.id)):collection(firestore,"service_hours"));const verified=hours.docs.filter(item=>item.data().status==="verified").reduce((sum,item)=>sum+Number(item.data().minutes??0),0);const pending=hours.docs.filter(item=>item.data().status==="pending").reduce((sum,item)=>sum+Number(item.data().minutes??0),0);if(session.role==="member")return {user:session,totals:{verified_minutes:verified,pending_minutes:pending}} as T;const [users,events,stories]=await Promise.all([getDocs(collection(firestore,"users")),getDocs(collection(firestore,"events")),getDocs(collection(firestore,"stories"))]);return {user:session,stats:{members:users.docs.filter(item=>item.data().status==="active").length,verified_minutes:verified,events:events.size,stories_pending:stories.docs.filter(item=>item.data().status==="submitted").length}} as T;
+      const session=await requireSession();const hours=await getDocs(session.role==="member"?query(collection(firestore,"service_hours"),where("user_id","==",session.id)):collection(firestore,"service_hours"));const verified=hours.docs.filter(item=>item.data().status==="verified").reduce((sum,item)=>sum+Number(item.data().minutes??0),0);const pending=hours.docs.filter(item=>item.data().status==="pending").reduce((sum,item)=>sum+Number(item.data().minutes??0),0);if(session.role==="member")return {user:session,totals:{verified_minutes:verified,pending_minutes:pending}} as T;const events=await getDocs(collection(firestore,"events"));if(session.role==="volunteer_admin")return {user:session,stats:{members:0,verified_minutes:verified,events:events.size,stories_pending:0,hours_pending:hours.docs.filter(item=>item.data().status==="pending").length}} as T;const [users,stories]=await Promise.all([getDocs(collection(firestore,"users")),getDocs(collection(firestore,"stories"))]);return {user:session,stats:{members:users.docs.filter(item=>item.data().status==="active").length,verified_minutes:verified,events:events.size,stories_pending:stories.docs.filter(item=>item.data().status==="submitted").length,hours_pending:hours.docs.filter(item=>item.data().status==="pending").length}} as T;
     }
     throw new Error(`Unsupported Firebase operation: ${method} ${url}`);
   } catch (error) { throw friendlyError(error); }

@@ -2,7 +2,15 @@
   "auth": {
     "providers": {
       "anonymous": false,
-      "emailPassword": true
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "Inspire With Music",
+        "supportEmail": "inspirewithmusic.org@gmail.com",
+        "authorizedRedirectUris": [
+          "https://inspirewithmusic123.web.app",
+          "https://inspirewithmusic123.firebaseapp.com"
+        ]
+      }
     }
   },
   "firestore": {

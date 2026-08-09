@@ -15,11 +15,18 @@ service cloud.firestore {
     }
 
     function volunteerAdmin() {
-      return activeUser() && currentProfile().role in ["volunteer_admin", "webmaster"];
+      return activeUser() && currentProfile().role == "volunteer_admin";
     }
 
     function webmaster() {
-      return activeUser() && currentProfile().role == "webmaster";
+      return activeUser()
+        && currentProfile().role == "webmaster"
+        && currentProfile().email == "inspirewithmusic.org@gmail.com"
+        && request.auth.token.email == "inspirewithmusic.org@gmail.com";
+    }
+
+    function eventCreator() {
+      return volunteerAdmin() || webmaster();
     }
 
     function bootstrapWebmaster() {
@@ -36,11 +43,13 @@ service cloud.firestore {
           request.resource.data.role == "member"
           || (request.resource.data.role == "webmaster" && bootstrapWebmaster())
         );
-      allow read: if signedIn() && (request.auth.uid == userId || volunteerAdmin());
-      allow update: if webmaster()
-        || (volunteerAdmin()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updated_at"])
-          && request.resource.data.status in ["active", "pending", "inactive"])
+      allow read: if signedIn() && (request.auth.uid == userId || webmaster());
+      allow update: if (webmaster()
+          && request.resource.data.role in ["member", "volunteer_admin", "webmaster"]
+          && (request.resource.data.role != "webmaster"
+            || request.resource.data.email == "inspirewithmusic.org@gmail.com")
+          && (resource.data.email != "inspirewithmusic.org@gmail.com"
+            || (request.resource.data.role == "webmaster" && request.resource.data.status == "active")))
         || (signedIn()
           && request.auth.uid == userId
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "phone", "instrument", "updated_at"]));
@@ -54,8 +63,9 @@ service cloud.firestore {
 
     match /events/{eventId} {
       allow read: if true;
-      allow create, delete: if volunteerAdmin();
-      allow update: if volunteerAdmin()
+      allow create: if eventCreator();
+      allow delete: if webmaster();
+      allow update: if webmaster()
         || (activeUser()
           && currentProfile().role == "member"
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["signup_count", "updated_at"])
@@ -69,24 +79,24 @@ service cloud.firestore {
           ));
 
       match /signups/{userId} {
-        allow read: if activeUser() && (request.auth.uid == userId || volunteerAdmin());
+        allow read: if activeUser() && (request.auth.uid == userId || webmaster());
         allow create: if activeUser()
           && request.auth.uid == userId
           && request.resource.data.user_id == request.auth.uid
           && get(/databases/$(database)/documents/events/$(eventId)).data.status == "open";
-        allow delete: if activeUser() && (request.auth.uid == userId || volunteerAdmin());
-        allow update: if volunteerAdmin();
+        allow delete: if activeUser() && (request.auth.uid == userId || webmaster());
+        allow update: if webmaster();
       }
     }
 
     match /service_hours/{hourId} {
-      allow read: if activeUser() && (resource.data.user_id == request.auth.uid || volunteerAdmin());
+      allow read: if activeUser() && (resource.data.user_id == request.auth.uid || volunteerAdmin() || webmaster());
       allow create: if activeUser()
         && currentProfile().role == "member"
         && request.resource.data.user_id == request.auth.uid
         && request.resource.data.status == "pending"
         && request.resource.data.minutes > 0;
-      allow update: if volunteerAdmin()
+      allow update: if webmaster()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "verified_by", "verified_at", "updated_at"])
         && request.resource.data.status in ["verified", "rejected"];
       allow delete: if false;

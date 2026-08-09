@@ -5,7 +5,7 @@ The public website and working volunteer platform for InspireWithMusic.org.
 ## Platform
 
 - Firebase Hosting for the public site and role-based portals
-- Firebase Authentication with email/password accounts
+- Firebase Authentication with email/password and Google accounts
 - Cloud Firestore for members, roles, events, signups, hours, stories, editable content, contacts, and settings
 - Cloud Storage for Firebase for webmaster image uploads
 - Firestore and Storage Security Rules for member, Volunteer Admin, and Webmaster permissions
@@ -13,13 +13,13 @@ The public website and working volunteer platform for InspireWithMusic.org.
 ## Roles
 
 - **Member:** signs up for events, submits service hours and stories, and edits their profile
-- **Volunteer Admin:** manages events and members and reviews service hours
-- **Webmaster:** receives all Volunteer Admin permissions plus site content, programs, images, stories, messages, settings, and role management
+- **Volunteer Admin:** creates volunteer events and has read-only access to submitted volunteer hours
+- **Webmaster:** the protected organization account with full control of content, programs, images, members, roles, events, hours, stories, messages, and settings
 
-The first verified Firebase Authentication account using
-`inspirewithmusic.org@gmail.com` is securely bootstrapped as the Webmaster.
-All other public registrations become Members. A Webmaster can promote an
-account to Volunteer Admin.
+The verified Firebase Authentication account using
+`inspirewithmusic.org@gmail.com` is securely bootstrapped as the only
+Webmaster. All other public registrations and Google sign-ins become Members.
+The Webmaster can promote an account to Volunteer Admin.
 
 ## Local development
 
@@ -49,7 +49,7 @@ npm run build:firebase
    firebase login:use inspirewithmusic.org@gmail.com
    ```
 
-2. Deploy the included configuration to enable **Email/Password** Authentication.
+2. Deploy the included configuration to enable **Email/Password** and **Google** Authentication.
 3. Create the default Cloud Firestore database if it does not already exist.
 4. Create Cloud Storage for Firebase. Firebase requires the Blaze plan for new
    default Storage buckets.
@@ -65,8 +65,9 @@ and Storage rules are deployed with the site. See
 
 ## Webmaster activation
 
-Open the deployed site, choose **Member Login → Create an account**, and use
-`inspirewithmusic.org@gmail.com`. Firebase sends a verification email. After
-verification, sign in again; the secure rules allow that verified email to
-create the initial Webmaster profile and seed the editable content and sample
-events.
+Open the deployed site and sign in with the Google account
+`inspirewithmusic.org@gmail.com`, or create an email/password account using
+that address and verify it. The secure rules allow only that verified identity
+to create the Webmaster profile and seed missing editable content. Production
+events are created only through the administration portal; no demo records are
+seeded.

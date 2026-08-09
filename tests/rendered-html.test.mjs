@@ -19,10 +19,14 @@ test("ships the real Inspire With Music application", async () => {
   assert.match(site, /Music in Action/);
   assert.match(firebase, /inspirewithmusic123/);
   assert.match(firebase, /signInWithEmailAndPassword/);
+  assert.match(firebase, /signInWithPopup/);
+  assert.match(firebase, /signInWithRedirect/);
+  assert.match(portals, /Sign in with Google/);
   assert.match(firebase, /runTransaction/);
   assert.match(firebase, /uploadBytes/);
   assert.match(rules, /volunteer_admin/);
   assert.match(rules, /email_verified/);
+  assert.match(rules, /request\.auth\.token\.email == "inspirewithmusic\.org@gmail\.com"/);
   assert.match(storageRules, /request\.resource\.contentType\.matches/);
   assert.match(defaults, /MUSIC BEYOND BORDERS/);
   assert.match(defaults, /impact\.music_shared/);
@@ -34,5 +38,5 @@ test("ships the real Inspire With Music application", async () => {
   assert.match(portals, /workspace-menu-open/);
   assert.match(globalCss, /@media\(max-width:480px\)/);
   assert.match(portalCss, /workspace-menu-button/);
-  assert.doesNotMatch(page + site + portals + firebase + layout, /Preview mode: any email|codex-preview|SkeletonPreview|AWS|PostgreSQL|PGlite/);
+  assert.doesNotMatch(page + site + portals + firebase + layout, /Preview mode: any email|codex-preview|SkeletonPreview|sampleEvents|AWS|PostgreSQL|PGlite/);
 });

@@ -3,7 +3,7 @@
 ## Services
 
 - **Firebase Hosting:** deploys the Vite-generated single-page application from `out/`
-- **Firebase Authentication:** email/password identity and durable browser sessions
+- **Firebase Authentication:** email/password and Google identity with durable browser sessions
 - **Cloud Firestore:** structured application and CMS data
 - **Cloud Storage:** uploaded public website imagery
 - **Security Rules:** server-enforced authorization independent of the interface
@@ -28,13 +28,17 @@ and the caller's active `users/{uid}` role. Interface visibility is only a
 convenience; the deployed rules enforce the actual permission boundary.
 
 The bootstrap Webmaster path is restricted to an authenticated, email-verified
-token for `inspirewithmusic.org@gmail.com`. New accounts otherwise receive the
-Member role. Only a Webmaster can assign administrator roles.
+token for `inspirewithmusic.org@gmail.com`, and the organization account cannot
+be demoted or deactivated. New accounts otherwise receive the Member role. The
+Webmaster can assign the narrowly scoped Volunteer Admin role, which can create
+events and read submitted hours but cannot edit events, approve hours, manage
+members, or change website content.
 
 ## Content and programs
 
 Default public content ships with the application so a new project renders
-immediately. On the first Webmaster login, missing content documents and sample
-events are written to Firestore. The Webmaster editor then controls all public
+immediately. On the first Webmaster login, missing content documents are
+written to Firestore. No sample member, event, or hour records are created in
+production. The Webmaster editor then controls all public
 copy, timeline labels, impact metrics, program descriptions, main images, and
 gallery images.

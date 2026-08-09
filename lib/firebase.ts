@@ -37,7 +37,10 @@ import type { EventRecord, Role, ServiceHourRecord, SessionUser, UserStatus } fr
 
 const firebaseConfig = {
   apiKey: "AIzaSyByxDBmDjou6bsrss1c1XJO42REPczazk8",
-  authDomain: "inspirewithmusic.org",
+  // Keep OAuth on Firebase's provisioned helper domain. The public site still
+  // runs at inspirewithmusic.org, while this callback is already authorized by
+  // the Google client that Firebase created for this project.
+  authDomain: "inspirewithmusic123.firebaseapp.com",
   projectId: "inspirewithmusic123",
   storageBucket: "inspirewithmusic123.firebasestorage.app",
   messagingSenderId: "560682527379",

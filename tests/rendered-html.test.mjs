@@ -18,7 +18,7 @@ test("ships the real Inspire With Music application", async () => {
   assert.match(page, /InspireSite/);
   assert.match(site, /Music in Action/);
   assert.match(firebase, /inspirewithmusic123/);
-  assert.match(firebase, /authDomain: "inspirewithmusic\.org"/);
+  assert.match(firebase, /authDomain: "inspirewithmusic123\.firebaseapp\.com"/);
   assert.match(firebase, /signInWithEmailAndPassword/);
   assert.match(firebase, /signInWithPopup/);
   assert.match(firebase, /signInWithRedirect/);

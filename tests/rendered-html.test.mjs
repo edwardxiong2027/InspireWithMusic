@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("ships the real Inspire With Music application", async () => {
-  const [page, site, portals, firebase, rules, storageRules, defaults, layout, globalCss, portalCss] = await Promise.all([
+  const [page, site, portals, visualEditor, firebase, rules, storageRules, defaults, layout, globalCss, portalCss] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/site/InspireSite.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/site/Portals.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/site/VisualContentEditor.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/firebase.ts", import.meta.url), "utf8"),
     readFile(new URL("../firestore.rules", import.meta.url), "utf8"),
     readFile(new URL("../storage.rules", import.meta.url), "utf8"),
@@ -36,7 +37,15 @@ test("ships the real Inspire With Music application", async () => {
   assert.match(defaults, /impact\.music_shared/);
   assert.match(defaults, /gallery/);
   assert.match(site, /program-focus-hero/);
-  assert.match(portals, /ProgramContentEditor/);
+  assert.match(portals, /VisualContentEditor/);
+  assert.match(visualEditor, /VISUAL WEBSITE EDITOR/);
+  assert.match(visualEditor, /IWM_CMS_DRAFT/);
+  assert.match(visualEditor, /Upload a new image/);
+  assert.match(visualEditor, /ProgramsInspector/);
+  assert.match(site, /IWM_CMS_SELECT/);
+  assert.match(defaults, /home\.story_image/);
+  assert.match(defaults, /donate\.materials_image/);
+  assert.doesNotMatch(portals, /Everything is/);
   assert.match(layout, /inspirewithmusic\.org/);
   assert.match(site, /aria-controls="primary-navigation"/);
   assert.match(portals, /workspace-menu-open/);

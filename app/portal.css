@@ -90,6 +90,14 @@
 .visual-programs .two-fields{gap:8px}
 .visual-programs .two-fields label{margin-top:0}
 .visual-remove-program{border:0;background:transparent;font-size:10px;text-transform:uppercase;font-weight:700;padding:12px 0}
+.visual-structured-list>article{border-top:1px solid var(--line);padding:14px 0 18px}
+.visual-list-head{display:flex;align-items:center;justify-content:space-between}
+.visual-list-head>b{width:30px;height:30px;display:grid;place-items:center;background:var(--ink);color:white;font-size:10px}
+.visual-list-head>button{border:0;background:transparent;font-size:9px;text-transform:uppercase;font-weight:700}
+.visual-structured-list label{display:block;margin:12px 0 0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.visual-structured-list input,.visual-structured-list textarea{display:block;width:100%;margin-top:6px;border:1px solid var(--line);background:white;padding:11px 12px;font-size:14px;line-height:1.45;outline:none;text-transform:none;letter-spacing:0}
+.visual-structured-list textarea{min-height:80px;resize:vertical}
+.visual-add-list{width:100%;margin-top:12px;min-height:43px}
 
 @media(max-width:1200px){.visual-editor-workspace{grid-template-columns:1fr}.visual-inspector{position:static;max-height:none}.visual-preview iframe{height:600px}}
 @media(max-width:760px){.visual-editor-toolbar{align-items:flex-start;flex-direction:column;padding:20px}.visual-editor-toolbar h2{font-size:29px}.visual-toolbar-actions{width:100%;justify-content:space-between}.visual-preview{padding:6px}.visual-preview iframe{height:580px}.visual-inspector{padding:20px}.visual-editor-workspace{gap:12px}.admin-welcome-actions{width:100%}.admin-welcome-actions .button{flex:1}.admin-welcome-copy{font-size:13px}}

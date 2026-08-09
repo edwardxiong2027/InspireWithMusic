@@ -37,7 +37,7 @@ import type { EventRecord, Role, ServiceHourRecord, SessionUser, UserStatus } fr
 
 const firebaseConfig = {
   apiKey: "AIzaSyByxDBmDjou6bsrss1c1XJO42REPczazk8",
-  authDomain: "inspirewithmusic123.firebaseapp.com",
+  authDomain: "inspirewithmusic.org",
   projectId: "inspirewithmusic123",
   storageBucket: "inspirewithmusic123.firebasestorage.app",
   messagingSenderId: "560682527379",

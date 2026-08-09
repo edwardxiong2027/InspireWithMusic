@@ -7,8 +7,12 @@
         "oAuthBrandDisplayName": "Inspire With Music",
         "supportEmail": "inspirewithmusic.org@gmail.com",
         "authorizedRedirectUris": [
+          "https://inspirewithmusic.org",
+          "https://inspirewithmusic.org/__/auth/handler",
           "https://inspirewithmusic123.web.app",
-          "https://inspirewithmusic123.firebaseapp.com"
+          "https://inspirewithmusic123.web.app/__/auth/handler",
+          "https://inspirewithmusic123.firebaseapp.com",
+          "https://inspirewithmusic123.firebaseapp.com/__/auth/handler"
         ]
       }
     }

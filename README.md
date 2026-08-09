@@ -63,6 +63,11 @@ The configuration targets Firebase project `inspirewithmusic123`. Firestore
 and Storage rules are deployed with the site. See
 [docs/FIREBASE-ARCHITECTURE.md](docs/FIREBASE-ARCHITECTURE.md).
 
+The production Firebase Authentication domain is `inspirewithmusic.org`, with
+the same-origin OAuth callback at
+`https://inspirewithmusic.org/__/auth/handler`. The default Firebase domains
+remain authorized for deployment previews.
+
 ## Webmaster activation
 
 Open the deployed site and sign in with the Google account

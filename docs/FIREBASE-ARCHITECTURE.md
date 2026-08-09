@@ -8,6 +8,10 @@
 - **Cloud Storage:** uploaded public website imagery
 - **Security Rules:** server-enforced authorization independent of the interface
 
+The production OAuth helper and callback use the branded Firebase Hosting
+domain `inspirewithmusic.org`, avoiding a cross-domain handoff to the numbered
+Firebase preview domain during Google sign-in.
+
 ## Firestore collections
 
 - `users/{uid}` — member profile, status, and role

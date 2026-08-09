@@ -12,7 +12,6 @@ import {
   setPersistence,
   signInWithEmailAndPassword,
   signInWithPopup,
-  signInWithRedirect,
   signOut,
   type User,
 } from "firebase/auth";
@@ -54,6 +53,9 @@ export const firestore = getFirestore(app);
 export const firebaseStorage = getStorage(app);
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({prompt:"select_account"});
+const profileCache = new Map<string, SessionUser>();
+const profileLoads = new Map<string, Promise<SessionUser>>();
+let seedScheduled = false;
 
 if (typeof window !== "undefined") void setPersistence(firebaseAuth, browserLocalPersistence);
 
@@ -106,31 +108,43 @@ function sessionFrom(user: User, data: DocumentData): SessionUser {
 }
 
 async function ensureProfile(user: User, initial?: {name?:string;instrument?:string}) {
-  const profileRef = doc(firestore, "users", user.uid);
-  const snapshot = await getDoc(profileRef);
-  if (snapshot.exists()) return sessionFrom(user, snapshot.data());
-  const isBootstrap = user.email?.toLowerCase() === WEBMASTER_BOOTSTRAP_EMAIL;
-  if (isBootstrap && !user.emailVerified) throw new Error("Verify the email sent to inspirewithmusic.org@gmail.com, then sign in again to activate the webmaster account.");
-  const profile = {
-    email: user.email ?? "",
-    name: initial?.name?.trim() || user.email?.split("@")[0] || "Member",
-    phone: "",
-    instrument: initial?.instrument?.trim() || "",
-    role: isBootstrap ? "webmaster" : "member",
-    status: "active",
-    created_at: now(),
-    updated_at: now(),
-  };
-  await setDoc(profileRef, profile);
-  return sessionFrom(user, profile);
+  const cached = profileCache.get(user.uid);
+  if (cached) return cached;
+  const pending = profileLoads.get(user.uid);
+  if (pending) return pending;
+
+  const load = (async () => {
+    const profileRef = doc(firestore, "users", user.uid);
+    const snapshot = await getDoc(profileRef);
+    if (snapshot.exists()) return sessionFrom(user, snapshot.data());
+    const isBootstrap = user.email?.toLowerCase() === WEBMASTER_BOOTSTRAP_EMAIL;
+    if (isBootstrap && !user.emailVerified) throw new Error("Verify the email sent to inspirewithmusic.org@gmail.com, then sign in again to activate the webmaster account.");
+    const profile = {
+      email: user.email ?? "",
+      name: initial?.name?.trim() || user.email?.split("@")[0] || "Member",
+      phone: "",
+      instrument: initial?.instrument?.trim() || "",
+      role: isBootstrap ? "webmaster" : "member",
+      status: "active",
+      created_at: now(),
+      updated_at: now(),
+    };
+    await setDoc(profileRef, profile);
+    if (isBootstrap) scheduleFirebaseSeed();
+    return sessionFrom(user, profile);
+  })();
+  profileLoads.set(user.uid, load);
+  try {
+    const session = await load;
+    profileCache.set(user.uid, session);
+    return session;
+  } finally {
+    profileLoads.delete(user.uid);
+  }
 }
 
 async function finishGoogleLogin(user: User) {
-  await user.reload();
-  await user.getIdToken(true);
-  const session = await ensureProfile(user,{name:user.displayName??""});
-  if (session.role === "webmaster") await ensureFirebaseSeed();
-  return session;
+  return ensureProfile(user,{name:user.displayName??""});
 }
 
 export async function completeGoogleRedirectLogin() {
@@ -142,11 +156,6 @@ export async function completeGoogleRedirectLogin() {
 
 export async function loginWithGoogle() {
   try {
-    const mobile = typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches;
-    if (mobile) {
-      await signInWithRedirect(firebaseAuth,googleProvider);
-      return null;
-    }
     const credential = await signInWithPopup(firebaseAuth,googleProvider);
     return await finishGoogleLogin(credential.user);
   } catch (error) { throw friendlyError(error); }
@@ -170,6 +179,14 @@ async function ensureFirebaseSeed() {
   for (const entry of defaultContentEntries) if (!existing.has(entry.key)) batch.set(doc(firestore,"content",entry.key), {...entry,updated_at:now()});
   if (!settingsSnapshot.exists()) batch.set(doc(firestore,"settings","site"), {project_id:firebaseConfig.projectId,storage_bucket:firebaseConfig.storageBucket,from_email:"hello@inspirewithmusic.org",updated_at:now()});
   await batch.commit();
+}
+
+function scheduleFirebaseSeed() {
+  if (seedScheduled || typeof window === "undefined") return;
+  seedScheduled = true;
+  window.setTimeout(() => {
+    void ensureFirebaseSeed().catch(() => { seedScheduled = false; });
+  }, 1500);
 }
 
 export async function getPublicContent() {
@@ -232,10 +249,7 @@ export async function firebaseApi<T>(url: string, options?: FirebaseApiOptions):
     }
     if (url === "/api/auth/login" && method === "POST") {
       const credential = await signInWithEmailAndPassword(firebaseAuth,String(input.email??""),String(input.password??""));
-      await credential.user.reload();
-      await credential.user.getIdToken(true);
       const session = await ensureProfile(credential.user);
-      if (session.role === "webmaster") await ensureFirebaseSeed();
       return {user:session} as T;
     }
     if (url === "/api/auth/signup" && method === "POST") {
@@ -249,7 +263,7 @@ export async function firebaseApi<T>(url: string, options?: FirebaseApiOptions):
       const session = await ensureProfile(credential.user,{name:String(input.name??""),instrument:String(input.instrument??"")});
       return {user:session} as T;
     }
-    if (url === "/api/auth/logout" && method === "POST") { await signOut(firebaseAuth); return {ok:true} as T; }
+    if (url === "/api/auth/logout" && method === "POST") { profileCache.clear(); profileLoads.clear(); await signOut(firebaseAuth); return {ok:true} as T; }
 
     if (url === "/api/content" && method === "GET") return await contentResponse() as T;
     if (url === "/api/content" && method === "PUT") {
@@ -290,7 +304,7 @@ export async function firebaseApi<T>(url: string, options?: FirebaseApiOptions):
     const hourMatch=url.match(/^\/api\/hours\/([^/]+)$/);
     if(hourMatch&&method==="PATCH"){const reviewer=await requireSession(["webmaster"]);await updateDoc(doc(firestore,"service_hours",hourMatch[1]),{status:String(input.status),verified_by:reviewer.id,verified_at:now(),updated_at:now()});return {ok:true} as T;}
 
-    if(url==="/api/profile"&&method==="PATCH"){const session=await requireSession();await updateDoc(doc(firestore,"users",session.id),{name:String(input.name??session.name),phone:String(input.phone??""),instrument:String(input.instrument??""),updated_at:now()});return {ok:true} as T;}
+    if(url==="/api/profile"&&method==="PATCH"){const session=await requireSession();const updated={...session,name:String(input.name??session.name),phone:String(input.phone??""),instrument:String(input.instrument??"")};await updateDoc(doc(firestore,"users",session.id),{name:updated.name,phone:updated.phone,instrument:updated.instrument,updated_at:now()});profileCache.set(session.id,updated);return {ok:true} as T;}
     if(url==="/api/users"&&method==="GET"){
       await requireSession(["webmaster"]);const [usersSnapshot,hoursSnapshot]=await Promise.all([getDocs(collection(firestore,"users")),getDocs(query(collection(firestore,"service_hours"),where("status","==","verified")))]);const totals=new Map<string,number>();hoursSnapshot.docs.forEach(item=>totals.set(String(item.data().user_id),(totals.get(String(item.data().user_id))??0)+Number(item.data().minutes??0)));return {users:usersSnapshot.docs.map(item=>({...withId<SessionUser&{created_at:string}>(item.id,item.data()),verified_minutes:totals.get(item.id)??0}))} as T;
     }
@@ -312,7 +326,15 @@ export async function firebaseApi<T>(url: string, options?: FirebaseApiOptions):
     if(url==="/api/settings"&&method==="PUT"){await requireSession(["webmaster"]);await setDoc(doc(firestore,"settings","site"),{...(input.settings as Json),updated_at:now()},{merge:true});return {ok:true} as T;}
 
     if(url==="/api/dashboard"){
-      const session=await requireSession();const hours=await getDocs(session.role==="member"?query(collection(firestore,"service_hours"),where("user_id","==",session.id)):collection(firestore,"service_hours"));const verified=hours.docs.filter(item=>item.data().status==="verified").reduce((sum,item)=>sum+Number(item.data().minutes??0),0);const pending=hours.docs.filter(item=>item.data().status==="pending").reduce((sum,item)=>sum+Number(item.data().minutes??0),0);if(session.role==="member")return {user:session,totals:{verified_minutes:verified,pending_minutes:pending}} as T;const events=await getDocs(collection(firestore,"events"));if(session.role==="volunteer_admin")return {user:session,stats:{members:0,verified_minutes:verified,events:events.size,stories_pending:0,hours_pending:hours.docs.filter(item=>item.data().status==="pending").length}} as T;const [users,stories]=await Promise.all([getDocs(collection(firestore,"users")),getDocs(collection(firestore,"stories"))]);return {user:session,stats:{members:users.docs.filter(item=>item.data().status==="active").length,verified_minutes:verified,events:events.size,stories_pending:stories.docs.filter(item=>item.data().status==="submitted").length,hours_pending:hours.docs.filter(item=>item.data().status==="pending").length}} as T;
+      const session=await requireSession();
+      const hoursQuery=session.role==="member"?query(collection(firestore,"service_hours"),where("user_id","==",session.id)):collection(firestore,"service_hours");
+      if(session.role==="member"){
+        const hours=await getDocs(hoursQuery);const verified=hours.docs.filter(item=>item.data().status==="verified").reduce((sum,item)=>sum+Number(item.data().minutes??0),0);const pending=hours.docs.filter(item=>item.data().status==="pending").reduce((sum,item)=>sum+Number(item.data().minutes??0),0);return {user:session,totals:{verified_minutes:verified,pending_minutes:pending}} as T;
+      }
+      if(session.role==="volunteer_admin"){
+        const [hours,events]=await Promise.all([getDocs(hoursQuery),getDocs(collection(firestore,"events"))]);const verified=hours.docs.filter(item=>item.data().status==="verified").reduce((sum,item)=>sum+Number(item.data().minutes??0),0);return {user:session,stats:{members:0,verified_minutes:verified,events:events.size,stories_pending:0,hours_pending:hours.docs.filter(item=>item.data().status==="pending").length}} as T;
+      }
+      const [hours,events,users,stories]=await Promise.all([getDocs(hoursQuery),getDocs(collection(firestore,"events")),getDocs(collection(firestore,"users")),getDocs(collection(firestore,"stories"))]);const verified=hours.docs.filter(item=>item.data().status==="verified").reduce((sum,item)=>sum+Number(item.data().minutes??0),0);return {user:session,stats:{members:users.docs.filter(item=>item.data().status==="active").length,verified_minutes:verified,events:events.size,stories_pending:stories.docs.filter(item=>item.data().status==="submitted").length,hours_pending:hours.docs.filter(item=>item.data().status==="pending").length}} as T;
     }
     throw new Error(`Unsupported Firebase operation: ${method} ${url}`);
   } catch (error) { throw friendlyError(error); }

@@ -54,6 +54,7 @@ type DefaultRow = readonly [string, string, string, string, string];
 
 export const editableContentDefaults: DefaultRow[] = [
   ["site.name", "Inspire With Music", "Global", "Site name", "text"],
+  ["site.tagline", "YOUTH IN SERVICE", "Global", "Logo tagline", "text"],
   ["site.organization", "Ivy Chamber Strings", "Global", "Legal organization name", "text"],
   ["site.logo_url", "", "Global", "Logo image", "image"],
   ["home.hero_eyebrow", "YOUTH-LED · MUSIC-DRIVEN · COMMUNITY-FOCUSED", "Homepage", "Hero eyebrow", "text"],

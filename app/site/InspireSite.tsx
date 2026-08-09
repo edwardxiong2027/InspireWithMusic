@@ -37,7 +37,7 @@ function Logo({ inverse = false }: { inverse?: boolean }) {
   const {text,bind}=useCms();const logo=text("site.logo_url","");
   return <button className={`logo ${inverse ? "logo-inverse" : ""}`} onClick={() => go("home")} aria-label="Inspire With Music home">
     {logo?<img className="logo-upload" src={logo} alt={text("site.name","Inspire With Music")} {...bind("site.logo_url")}/>:<span className="logo-mark" aria-hidden="true" {...bind("site.logo_url")}><i /><i /><i /><i /></span>}
-    {!logo&&<span><b {...bind("site.name")}>{text("site.name","INSPIRE")}</b><em>WITH MUSIC</em></span>}
+    {!logo&&<span><b {...bind("site.name")}>{text("site.name","INSPIRE")}</b><em {...bind("site.tagline")}>{text("site.tagline","YOUTH IN SERVICE")}</em></span>}
   </button>;
 }
 
@@ -107,7 +107,7 @@ function Home() {
 
     <section className="what-section section-pad">
       <SectionHeading eyebrow="03 · WHAT WE DO" title="Turning music talent into meaningful service."/>
-      <div className="what-grid interactive-programs">{services.map((item, i) => <article key={item.title} role="link" tabIndex={0} onClick={()=>goProgram(servicePrograms[i])} onKeyDown={event=>{if(event.key==="Enter"||event.key===" ")goProgram(servicePrograms[i])}}><div><span>0{i + 1}</span><b>{item.icon}</b></div><h3>{item.title}</h3><p>{item.text}</p><span className="program-card-link">Explore program →</span></article>)}</div>
+      <div className="what-grid interactive-programs">{services.map((item, i) => <article key={item.title} role="link" tabIndex={0} onClick={()=>goProgram(servicePrograms[i])} onKeyDown={event=>{if(event.key==="Enter"||event.key===" ")goProgram(servicePrograms[i])}}><div className="service-symbol"><b>{item.icon}</b></div><h3>{item.title}</h3><p>{item.text}</p><span className="program-card-link">Explore program →</span></article>)}</div>
     </section>
 
     <section className="story-section">

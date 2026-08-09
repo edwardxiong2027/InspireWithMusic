@@ -45,6 +45,9 @@ test("ships the real Inspire With Music application", async () => {
   assert.match(site, /IWM_CMS_SELECT/);
   assert.match(defaults, /home\.story_image/);
   assert.match(defaults, /donate\.materials_image/);
+  assert.match(defaults, /site\.tagline/);
+  assert.match(site, /YOUTH IN SERVICE/);
+  assert.doesNotMatch(site, /<span>0\{i \+ 1\}<\/span><b>\{item\.icon\}/);
   assert.doesNotMatch(portals, /Everything is/);
   assert.match(layout, /inspirewithmusic\.org/);
   assert.match(site, /aria-controls="primary-navigation"/);

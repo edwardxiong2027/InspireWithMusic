@@ -15,7 +15,7 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
   return firebaseApi<T>(url, options);
 }
 
-function AppLogo({ navigate, inverse=true }:{navigate:Navigate;inverse?:boolean}){return <button className={`logo ${inverse?"logo-inverse":""}`} onClick={()=>navigate("home")}><span className="logo-mark"><i/><i/><i/><i/></span><span><b>INSPIRE</b><em>WITH MUSIC</em></span></button>}
+function AppLogo({ navigate, inverse=true }:{navigate:Navigate;inverse?:boolean}){return <button className={`logo ${inverse?"logo-inverse":""}`} onClick={()=>navigate("home")}><span className="logo-mark"><i/><i/><i/><i/></span><span><b>INSPIRE</b><em>YOUTH IN SERVICE</em></span></button>}
 function Notice({message,error=false}:{message:string;error?:boolean}){return message?<div className={`form-notice ${error?"error":"success"}`}>{message}</div>:null}
 function Loading(){return <div className="portal-loading"><span>♫</span><p>Loading your workspace…</p></div>}
 

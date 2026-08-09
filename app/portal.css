@@ -38,3 +38,64 @@
 
 .program-editor{margin-top:24px}.program-editor-intro{display:flex;justify-content:space-between;align-items:center;gap:25px;padding:20px;background:var(--cream);border:1px solid var(--line)}.program-editor-intro h3{font:600 18px var(--body);letter-spacing:0;margin:0}.program-editor-intro p{font-size:11px;color:#68777e;margin:5px 0 0}.program-editor>article{border:1px solid var(--line);padding:24px;margin-top:16px;background:#fdfcf9}.program-editor-head{display:grid;grid-template-columns:45px 1fr auto;align-items:center;gap:15px;border-bottom:1px solid var(--line);padding-bottom:14px}.program-editor-head>span{width:40px;height:40px;display:grid;place-items:center;background:var(--ink);color:white;font-size:10px}.program-editor-head h3{font:600 18px var(--body);letter-spacing:0;margin:0}.program-editor-head button{border:0;background:none;font-size:9px;text-transform:uppercase;font-weight:700}.program-editor-preview{height:260px;object-fit:cover;border:1px solid var(--line);margin-top:-12px}.program-editor textarea{min-height:85px}
 @media(max-width:600px){.program-editor-intro{align-items:flex-start;flex-direction:column}.program-editor-intro button{width:100%}.program-editor>article{padding:18px}.program-editor-head{grid-template-columns:40px 1fr}.program-editor-head button{grid-column:2;justify-self:start}.program-editor-preview{height:200px}}
+
+/* Comfortable dashboard type scale */
+.portal-shell,.admin-shell{font-size:15px}
+.portal-sidebar button,.admin-sidebar nav button,.admin-exit{font-size:14px;line-height:1.35;padding-block:13px}
+.admin-sidebar .role-pill{font-size:10px;line-height:1.35;padding:8px 11px}
+.portal-top p,.admin-top p,.admin-welcome p,.portal-hero p{font-size:11px;line-height:1.45}
+.avatar,.admin-user{font-size:13px}
+.form-notice{font-size:13px;line-height:1.55;padding:14px 16px}
+.portal-loading p{font-size:12px}
+.portal-hero>div>span,.portal-hero small{font-size:12px;line-height:1.5}
+.portal-main .eyebrow,.admin-main .eyebrow{font-size:11px}
+.event-date span{font-size:11px}
+.event-list h3{font-size:18px;line-height:1.3}
+.event-list p{font-size:13px;line-height:1.5}
+.spots{font-size:11px}
+.event-list article>button{font-size:11px;padding:11px 13px}
+.hours-card>div,.story-submit p{font-size:14px}
+.hours-card>button,.story-submit button{font-size:11px}
+.workspace-form h3,.workspace-list h3{font-size:20px}
+.workspace-form label,.inline-admin-form label,.media-upload label,.editor-form label,.settings-fields label{font-size:11px;line-height:1.4}
+.workspace-form input,.workspace-form select,.workspace-form textarea,.inline-admin-form input,.inline-admin-form select,.inline-admin-form textarea,.media-upload input,.editor-form input,.editor-form textarea,.settings-fields input,.settings-fields select{font-size:15px;line-height:1.5;padding:13px 14px}
+.workspace-list b{font-size:14px;line-height:1.4}
+.workspace-list span{font-size:12px;line-height:1.5}
+.workspace-list em{font-size:10px;padding:5px 9px}
+.empty-row,.admin-copy{font-size:14px}
+.stat-cards article>span,.stat-cards small{font-size:10px}
+.stat-cards p{font-size:13px}
+.admin-section-head h3{font-size:19px}
+.quick-action{font-size:14px;line-height:1.4;padding:16px 0}
+.table-toolbar p,.media-upload p,.program-editor-intro p{font-size:13px;line-height:1.55}
+.table-card table{font-size:13px;line-height:1.45}
+.table-card th{font-size:10px;padding:14px 20px}
+.table-card td{padding:17px 20px}
+.table-card td span{font-size:11px;line-height:1.45;margin-top:4px}
+.table-card td em{font-size:10px;padding:5px 9px}
+.table-card td select{font-size:13px;padding:8px 10px}
+.table-card td button{font-size:11px;line-height:1.4;padding-block:5px}
+.editor-layout>aside>p,.editor-head p,.settings-page>section>div:first-child>p{font-size:10px}
+.editor-layout>aside button{font-size:13px;line-height:1.4;padding:11px}
+.editor-form label>small{font-size:10px;line-height:1.4;margin-top:6px}
+.outline-button,.program-editor-head button{font-size:11px}
+.program-editor-head>span{font-size:12px}
+.media-grid b{font-size:13px;line-height:1.4}
+.media-grid span{font-size:11px;line-height:1.4}
+.media-grid button{font-size:10px;padding:8px 0}
+.review-list article p{font-size:11px;line-height:1.4}
+.review-list h3{font-size:19px;line-height:1.3}
+.review-list article span,.review-list article>a,.review-list details{font-size:13px;line-height:1.55}
+.review-list article>div:last-child button{font-size:10px;padding:9px 13px}
+.settings-note,.connection-ok{font-size:13px;line-height:1.55}
+.portal-shell .button,.admin-shell .button{font-size:11px}
+
+@media(max-width:760px){
+  .workspace-menu-button,.workspace-menu-button span{font-size:13px!important}
+  .portal-sidebar nav button,.admin-sidebar nav button,.portal-sidebar nav button:not(.selected),.admin-sidebar nav button:not(.selected){font-size:14px!important;min-height:52px}
+  .portal-sidebar nav button span,.admin-sidebar nav button span{font-size:14px!important}
+  .portal-sidebar>div button span{font-size:13px!important}
+  .workspace-form input,.workspace-form select,.workspace-form textarea,.inline-admin-form input,.inline-admin-form select,.inline-admin-form textarea,.media-upload input,.editor-form input,.editor-form textarea,.settings-fields input,.settings-fields select{font-size:16px;min-height:48px}
+  .table-card table{font-size:14px}
+  .table-card td span{font-size:12px}
+}

@@ -42,5 +42,8 @@ test("ships the real Inspire With Music application", async () => {
   assert.match(portals, /workspace-menu-open/);
   assert.match(globalCss, /@media\(max-width:480px\)/);
   assert.match(portalCss, /workspace-menu-button/);
+  assert.match(portalCss, /Comfortable dashboard type scale/);
+  assert.match(portalCss, /\.table-card table\{font-size:13px/);
+  assert.match(portalCss, /\.workspace-form label.*font-size:11px/);
   assert.doesNotMatch(page + site + portals + firebase + layout, /Preview mode: any email|codex-preview|SkeletonPreview|sampleEvents|AWS|PostgreSQL|PGlite/);
 });

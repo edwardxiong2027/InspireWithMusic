@@ -1,4 +1,4 @@
-export type Role = "member" | "volunteer_admin" | "webmaster";
+export type Role = "website_user" | "member" | "volunteer_admin" | "webmaster";
 export type UserStatus = "active" | "pending" | "inactive";
 export type MembershipStatus = "website_user" | "official_member";
 

@@ -45,26 +45,31 @@ service cloud.firestore {
         && request.resource.data.status == "active"
         && validMembership(request.resource.data.membership_status)
         && (
-          (request.resource.data.role == "member" && request.resource.data.membership_status == "website_user")
+          (request.resource.data.role == "website_user" && request.resource.data.membership_status == "website_user")
           || (request.resource.data.role == "webmaster" && request.resource.data.membership_status == "official_member" && bootstrapWebmaster())
         );
       allow read: if signedIn() && (request.auth.uid == userId || eventCreator());
       allow update: if (webmaster()
-          && request.resource.data.role in ["member", "volunteer_admin", "webmaster"]
+          && request.resource.data.role in ["website_user", "member", "volunteer_admin", "webmaster"]
           && validMembership(request.resource.data.membership_status)
           && (request.resource.data.role != "webmaster"
             || request.resource.data.email == "inspirewithmusic.org@gmail.com")
           && (resource.data.email != "inspirewithmusic.org@gmail.com"
             || (request.resource.data.role == "webmaster" && request.resource.data.status == "active")))
         || (volunteerAdmin()
-          && resource.data.role == "member"
-          && request.resource.data.role == "member"
+          && resource.data.role in ["website_user", "member"]
+          && request.resource.data.role in ["website_user", "member"]
           && validMembership(request.resource.data.membership_status)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["membership_status", "updated_at"]))
         || (signedIn()
           && request.auth.uid == userId
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "phone", "instrument", "updated_at"]));
-      allow delete: if false;
+      allow delete: if webmaster() && resource.data.email != "inspirewithmusic.org@gmail.com";
+    }
+
+    match /deleted_users/{userId} {
+      allow read: if false;
+      allow create, update, delete: if webmaster();
     }
 
     match /content/{contentId} {
@@ -85,7 +90,7 @@ service cloud.firestore {
           && request.resource.data.signup_count >= 0
           && request.resource.data.signup_count <= request.resource.data.capacity)
         || (activeUser()
-          && currentProfile().role == "member"
+          && currentProfile().role in ["website_user", "member"]
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["signup_count", "updated_at"])
           && request.resource.data.signup_count >= 0
           && request.resource.data.signup_count <= resource.data.capacity
@@ -103,7 +108,7 @@ service cloud.firestore {
             && request.resource.data.attendance_status == "pending"
             && (!get(/databases/$(database)/documents/events/$(eventId)).data.keys().hasAny(["audience"])
               || get(/databases/$(database)/documents/events/$(eventId)).data.audience != "official_members"
-              || get(/databases/$(database)/documents/users/$(userId)).data.membership_status == "official_member"))
+              || get(/databases/$(database)/documents/users/$(userId)).data.role == "member"))
           || (activeUser()
             && request.auth.uid == userId
             && request.resource.data.user_id == request.auth.uid
@@ -112,7 +117,7 @@ service cloud.firestore {
               || request.time < get(/databases/$(database)/documents/events/$(eventId)).data.starts_at_timestamp)
             && (!get(/databases/$(database)/documents/events/$(eventId)).data.keys().hasAny(["audience"])
               || get(/databases/$(database)/documents/events/$(eventId)).data.audience != "official_members"
-              || currentProfile().membership_status == "official_member"));
+              || currentProfile().role == "member"));
         allow delete: if activeUser() && (request.auth.uid == userId || eventCreator());
         allow update: if eventCreator()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["attendance_status", "attendance_confirmed_by", "attendance_confirmed_at", "updated_at"])

@@ -125,7 +125,7 @@ async function authUser(): Promise<User | null> {
 }
 
 function sessionFrom(user: User, data: DocumentData): SessionUser {
-  const role = (data.role ?? "member") as Role;
+  const role = (data.role ?? "website_user") as Role;
   return {
     id: user.uid,
     email: user.email ?? String(data.email ?? ""),
@@ -134,7 +134,7 @@ function sessionFrom(user: User, data: DocumentData): SessionUser {
     instrument: String(data.instrument ?? ""),
     role,
     status: (data.status ?? "active") as UserStatus,
-    membership_status: (role === "member"
+    membership_status: (role === "website_user"
       ? (data.membership_status ?? "website_user")
       : "official_member") as MembershipStatus,
   };
@@ -153,6 +153,11 @@ async function ensureProfile(
     const profileRef = doc(firestore, "users", user.uid);
     const snapshot = await getDoc(profileRef);
     if (snapshot.exists()) return sessionFrom(user, snapshot.data());
+    const deleted = await getDoc(doc(firestore, "deleted_users", user.uid));
+    if (deleted.exists())
+      throw new Error(
+        "This account has been removed. Please contact the organization.",
+      );
     const isBootstrap = user.email?.toLowerCase() === WEBMASTER_BOOTSTRAP_EMAIL;
     if (isBootstrap && !user.emailVerified)
       throw new Error(
@@ -163,7 +168,7 @@ async function ensureProfile(
       name: initial?.name?.trim() || user.email?.split("@")[0] || "Member",
       phone: "",
       instrument: initial?.instrument?.trim() || "",
-      role: isBootstrap ? "webmaster" : "member",
+      role: isBootstrap ? "webmaster" : "website_user",
       status: "active",
       membership_status: isBootstrap ? "official_member" : "website_user",
       created_at: now(),
@@ -363,7 +368,7 @@ async function eventResponse() {
 async function hoursResponse() {
   const session = await requireSession();
   const source =
-    session.role === "member"
+    session.role === "member" || session.role === "website_user"
       ? query(
           collection(firestore, "service_hours"),
           where("user_id", "==", session.id),
@@ -489,7 +494,7 @@ export async function firebaseApi<T>(
     }
     const signupMatch = url.match(/^\/api\/events\/([^/]+)\/signup$/);
     if (signupMatch) {
-      const session = await requireSession(["member"]);
+      const session = await requireSession(["website_user", "member"]);
       const eventId = signupMatch[1];
       const eventRef = doc(firestore, "events", eventId);
       const signupRef = doc(
@@ -515,7 +520,7 @@ export async function firebaseApi<T>(
             throw new Error("This event is no longer open for signup.");
           if (
             event.audience === "official_members" &&
-            session.membership_status !== "official_member"
+            session.role !== "member"
           )
             throw new Error(
               "This event is available to official members only.",
@@ -567,7 +572,9 @@ export async function firebaseApi<T>(
           members: userSnapshot.docs
             .map((item) => withId<SessionUser>(item.id, item.data()))
             .filter(
-              (item) => item.status === "active" && item.role === "member",
+              (item) =>
+                item.status === "active" &&
+                (item.role === "member" || item.role === "website_user"),
             )
             .sort((a, b) => a.name.localeCompare(b.name)),
         } as T;
@@ -584,7 +591,7 @@ export async function firebaseApi<T>(
         const eventData = eventSnap.data();
         if (
           eventData.audience === "official_members" &&
-          member.membership_status !== "official_member"
+          member.role !== "member"
         )
           throw new Error(
             "Only an official member can be added to this event.",
@@ -797,7 +804,7 @@ export async function firebaseApi<T>(
     if (url === "/api/hours" && method === "GET")
       return (await hoursResponse()) as T;
     if (url === "/api/hours" && method === "POST") {
-      const session = await requireSession(["member"]);
+      const session = await requireSession(["website_user", "member"]);
       const created = await addDoc(collection(firestore, "service_hours"), {
         user_id: session.id,
         event_id: null,
@@ -868,7 +875,7 @@ export async function firebaseApi<T>(
           return {
             ...withId<SessionUser & { created_at: string }>(item.id, data),
             membership_status:
-              (data.role ?? "member") === "member"
+              (data.role ?? "website_user") === "website_user"
                 ? (data.membership_status ?? "website_user")
                 : "official_member",
             verified_minutes: totals.get(item.id) ?? 0,
@@ -884,9 +891,57 @@ export async function firebaseApi<T>(
         change.membership_status = input.membershipStatus;
       if (reviewer.role === "webmaster") {
         if (input.status) change.status = input.status;
-        if (input.role) change.role = input.role;
+        if (input.role) {
+          change.role = input.role;
+          change.membership_status =
+            input.role === "member" ? "official_member" : "website_user";
+        }
       }
       await updateDoc(doc(firestore, "users", userMatch[1]), change);
+      return { ok: true } as T;
+    }
+
+    if (userMatch && method === "DELETE") {
+      const reviewer = await requireSession(["webmaster"]);
+      const userId = userMatch[1];
+      if (userId === reviewer.id)
+        throw new Error("The Webmaster account cannot be deleted.");
+      const userRef = doc(firestore, "users", userId);
+      const userSnapshot = await getDoc(userRef);
+      if (!userSnapshot.exists()) throw new Error("User not found.");
+      const [hours, events] = await Promise.all([
+        getDocs(
+          query(
+            collection(firestore, "service_hours"),
+            where("user_id", "==", userId),
+          ),
+        ),
+        getDocs(collection(firestore, "events")),
+      ]);
+      const batch = writeBatch(firestore);
+      hours.docs.forEach((item) => batch.delete(item.ref));
+      for (const event of events.docs) {
+        const signup = await getDoc(
+          doc(firestore, "events", event.id, "signups", userId),
+        );
+        if (signup.exists()) {
+          batch.delete(signup.ref);
+          batch.update(event.ref, {
+            signup_count: Math.max(
+              0,
+              Number(event.data().signup_count ?? 0) - 1,
+            ),
+            updated_at: now(),
+          });
+        }
+      }
+      batch.delete(userRef);
+      batch.set(doc(firestore, "deleted_users", userId), {
+        deleted_by: reviewer.id,
+        deleted_at: now(),
+      });
+      await batch.commit();
+      profileCache.delete(userId);
       return { ok: true } as T;
     }
 
@@ -895,7 +950,7 @@ export async function firebaseApi<T>(
       let source;
       if (session.role === "webmaster")
         source = collection(firestore, "stories");
-      else if (session.role === "member")
+      else if (session.role === "member" || session.role === "website_user")
         source = query(
           collection(firestore, "stories"),
           where("author_id", "==", session.id),
@@ -918,7 +973,7 @@ export async function firebaseApi<T>(
       } as T;
     }
     if (url === "/api/stories" && method === "POST") {
-      const session = await requireSession(["member"]);
+      const session = await requireSession(["website_user", "member"]);
       const created = await addDoc(collection(firestore, "stories"), {
         author_id: session.id,
         author_name: session.name,
@@ -938,7 +993,7 @@ export async function firebaseApi<T>(
       method === "POST" &&
       options?.body instanceof FormData
     ) {
-      const session = await requireSession(["member"]);
+      const session = await requireSession(["website_user", "member"]);
       const file = options.body.get("file");
       if (!(file instanceof File))
         throw new Error("Choose an image to upload.");
@@ -1048,13 +1103,13 @@ export async function firebaseApi<T>(
     if (url === "/api/dashboard") {
       const session = await requireSession();
       const hoursQuery =
-        session.role === "member"
+        session.role === "member" || session.role === "website_user"
           ? query(
               collection(firestore, "service_hours"),
               where("user_id", "==", session.id),
             )
           : collection(firestore, "service_hours");
-      if (session.role === "member") {
+      if (session.role === "member" || session.role === "website_user") {
         const hours = await getDocs(hoursQuery);
         const verified = hours.docs
           .filter((item) => item.data().status === "verified")

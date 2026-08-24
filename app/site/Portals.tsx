@@ -112,7 +112,9 @@ export function LoginApp({ navigate }: { navigate: Navigate }) {
   });
   const openWorkspace = useCallback(
     (user: SessionUser) =>
-      navigate(user.role === "member" ? "portal" : "admin"),
+      navigate(
+        ["website_user", "member"].includes(user.role) ? "portal" : "admin",
+      ),
     [navigate],
   );
   useEffect(() => {
@@ -159,7 +161,11 @@ export function LoginApp({ navigate }: { navigate: Navigate }) {
         return;
       }
       if (result.user)
-        navigate(result.user.role === "member" ? "portal" : "admin");
+        navigate(
+          ["website_user", "member"].includes(result.user.role)
+            ? "portal"
+            : "admin",
+        );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to sign in");
     } finally {
@@ -319,7 +325,7 @@ export function MemberPortal({ navigate }: { navigate: Navigate }) {
         api<{ events: EventRecord[] }>("/api/events"),
         api<{ hours: ServiceHourRecord[] }>("/api/hours"),
       ]);
-      if (dash.user.role !== "member") {
+      if (!["website_user", "member"].includes(dash.user.role)) {
         navigate("admin");
         return;
       }
@@ -1008,7 +1014,7 @@ export function AdminPortal({ navigate }: { navigate: Navigate }) {
       const result = await api<{ user: SessionUser; stats: AdminStats }>(
         "/api/dashboard",
       );
-      if (result.user.role === "member") {
+      if (["website_user", "member"].includes(result.user.role)) {
         navigate("portal");
         return;
       }
@@ -1024,7 +1030,8 @@ export function AdminPortal({ navigate }: { navigate: Navigate }) {
       .then((result) => {
         if (!active) return;
         if (!result.user) return navigate("login");
-        if (result.user.role === "member") return navigate("portal");
+        if (["website_user", "member"].includes(result.user.role))
+          return navigate("portal");
         setUser(result.user);
         setLoading(false);
         void refresh();
@@ -1260,10 +1267,27 @@ function RealMembersAdmin({ webmaster }: { webmaster: boolean }) {
         method: "PATCH",
         body: JSON.stringify(change),
       });
-      setMessage("Member updated.");
+      setMessage("Account updated.");
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to update");
+    }
+  }
+  async function remove(id: string, name: string) {
+    if (
+      !confirm(
+        `Permanently remove ${name}? Their profile, service records, and event signups will be deleted.`,
+      )
+    )
+      return;
+    try {
+      await api(`/api/users/${id}`, { method: "DELETE" });
+      setUsers((current) => current.filter((user) => user.id !== id));
+      setMessage("User removed.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Unable to remove user",
+      );
     }
   }
   return (
@@ -1288,6 +1312,7 @@ function RealMembersAdmin({ webmaster }: { webmaster: boolean }) {
               <th>Membership</th>
               <th>Status</th>
               <th>Role</th>
+              {webmaster && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -1303,20 +1328,11 @@ function RealMembersAdmin({ webmaster }: { webmaster: boolean }) {
                   <td>{x.instrument || "—"}</td>
                   <td>{(x.verified_minutes / 60).toFixed(1)} h</td>
                   <td>
-                    {owner ? (
-                      <em>official member</em>
-                    ) : (
-                      <select
-                        value={x.membership_status}
-                        onChange={(e) =>
-                          update(x.id, { membershipStatus: e.target.value })
-                        }
-                        aria-label={"Membership for " + x.name}
-                      >
-                        <option value="website_user">website user</option>
-                        <option value="official_member">official member</option>
-                      </select>
-                    )}
+                    <em>
+                      {x.role === "member" || owner
+                        ? "official member"
+                        : "website user"}
+                    </em>
                   </td>
                   <td>
                     {owner || !webmaster ? (
@@ -1346,11 +1362,24 @@ function RealMembersAdmin({ webmaster }: { webmaster: boolean }) {
                         value={x.role}
                         onChange={(e) => update(x.id, { role: e.target.value })}
                       >
+                        <option value="website_user">website user</option>
                         <option value="member">member</option>
                         <option value="volunteer_admin">volunteer admin</option>
                       </select>
                     )}
                   </td>
+                  {webmaster && (
+                    <td>
+                      {!owner && (
+                        <button
+                          className="danger-link"
+                          onClick={() => remove(x.id, x.name)}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               );
             })}

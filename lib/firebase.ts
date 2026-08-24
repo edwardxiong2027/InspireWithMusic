@@ -1155,8 +1155,13 @@ export async function firebaseApi<T>(
       return {
         user: session,
         stats: {
-          members: users.docs.filter((item) => item.data().status === "active")
-            .length,
+          members: users.docs.filter(
+            (item) =>
+              item.data().status === "active" &&
+              ["member", "volunteer_admin", "webmaster"].includes(
+                String(item.data().role ?? "website_user"),
+              ),
+          ).length,
           verified_minutes: verified,
           events: events.size,
           stories_pending: stories.docs.filter(

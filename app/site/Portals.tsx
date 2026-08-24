@@ -20,6 +20,39 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
   return firebaseApi<T>(url, options);
 }
 
+async function optimizeStoryImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/"))
+    throw new Error("Choose a JPG, PNG, or WebP image.");
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context)
+      throw new Error("Image processing is unavailable in this browser.");
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/webp", 0.82),
+    );
+    if (!blob) throw new Error("The image could not be optimized.");
+    return new File(
+      [blob],
+      `${file.name.replace(/\.[^.]+$/, "") || "story"}.webp`,
+      {
+        type: "image/webp",
+      },
+    );
+  } catch (error) {
+    if (file.size <= 5 * 1024 * 1024) return file;
+    throw error instanceof Error
+      ? error
+      : new Error("The image could not be optimized.");
+  }
+}
+
 function AppLogo({
   navigate,
   inverse = true,
@@ -309,7 +342,11 @@ export function MemberPortal({ navigate }: { navigate: Navigate }) {
   }
   async function toggleSignup(event: EventRecord) {
     setMessage("");
-    if (event.is_signed_up && !confirm(`Cancel your signup for ${event.title}?`)) return;
+    if (
+      event.is_signed_up &&
+      !confirm(`Cancel your signup for ${event.title}?`)
+    )
+      return;
     try {
       await api(`/api/events/${event.id}/signup`, {
         method: event.is_signed_up ? "DELETE" : "POST",
@@ -365,9 +402,7 @@ export function MemberPortal({ navigate }: { navigate: Navigate }) {
         {tab === "Opportunities" && (
           <Opportunities events={events} toggleSignup={toggleSignup} />
         )}{" "}
-        {tab === "My hours" && (
-          <HoursPage hours={hours} onSaved={load} />
-        )}{" "}
+        {tab === "My hours" && <HoursPage hours={hours} onSaved={load} />}{" "}
         {tab === "Submit a story" && (
           <StorySubmission
             onSaved={() => setMessage("Your story was submitted for review.")}
@@ -437,6 +472,7 @@ function MemberSidebar({
   );
 }
 function MemberOverview({
+  user,
   events,
   hours,
   verifiedHours,
@@ -454,6 +490,28 @@ function MemberOverview({
 }) {
   return (
     <>
+      <div className={`membership-banner ${user.membership_status}`}>
+        <div>
+          <b>
+            {user.membership_status === "official_member"
+              ? "Official member"
+              : "Website account"}
+          </b>
+          <p>
+            {user.membership_status === "official_member" ? (
+              "Your official membership is active. You can join all eligible volunteer opportunities."
+            ) : (
+              <>
+                To become an official Inspire With Music member, contact{" "}
+                <a href="mailto:inspirewithmusic.org@gmail.com">
+                  inspirewithmusic.org@gmail.com
+                </a>
+                .
+              </>
+            )}
+          </p>
+        </div>
+      </div>
       <div className="portal-hero">
         <div>
           <p>YOUR VERIFIED IMPACT</p>
@@ -482,7 +540,7 @@ function MemberOverview({
         </button>
       </div>
       <EventList
-        events={events.filter((x) => x.status === "open").slice(0, 3)}
+        events={events.filter((x) => x.signup_open).slice(0, 3)}
         toggleSignup={toggleSignup}
       />
       <div className="portal-bottom-grid">
@@ -524,6 +582,9 @@ function EventList({
     <div className="event-list">
       {events.map((event) => {
         const date = new Date(event.starts_at);
+        const signupEnabled = Boolean(
+          event.can_signup || (event.is_signed_up && event.signup_open),
+        );
         return (
           <article key={event.id}>
             <div className="event-date">
@@ -543,30 +604,70 @@ function EventList({
               </p>
             </div>
             <span className="spots">
-              {Math.max(0, event.capacity - event.signup_count)} spots
+              {event.audience === "official_members"
+                ? "Official members"
+                : "All users"}{" "}
+              · {Math.max(0, event.capacity - event.signup_count)} spots
             </span>
             <button
               className={event.is_signed_up ? "joined" : ""}
-              disabled={event.status !== "open"}
+              disabled={!signupEnabled}
               onClick={() => toggleSignup(event)}
             >
-              {event.is_signed_up
+              {event.is_signed_up && event.signup_open
                 ? "Cancel signup"
-                : event.status === "open"
+                : event.can_signup
                   ? "Sign up →"
-                  : "Closed"}
+                  : event.signup_block_reason || "Signup closed"}
             </button>
             <details className="member-event-details">
               <summary>View event details</summary>
               <div>
-                <p>{event.description || "More information will be added soon."}</p>
+                <p>
+                  {event.description || "More information will be added soon."}
+                </p>
                 <dl>
-                  <div><dt>Starts</dt><dd>{new Date(event.starts_at).toLocaleString([], {dateStyle:"full",timeStyle:"short"})}</dd></div>
-                  <div><dt>Ends</dt><dd>{new Date(event.ends_at).toLocaleString([], {dateStyle:"full",timeStyle:"short"})}</dd></div>
-                  <div><dt>Location</dt><dd>{event.location}</dd></div>
-                  <div><dt>Service credit</dt><dd>{(event.service_minutes/60).toFixed(1)} hours after attendance is confirmed</dd></div>
+                  <div>
+                    <dt>Starts</dt>
+                    <dd>
+                      {new Date(event.starts_at).toLocaleString([], {
+                        dateStyle: "full",
+                        timeStyle: "short",
+                      })}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Ends</dt>
+                    <dd>
+                      {new Date(event.ends_at).toLocaleString([], {
+                        dateStyle: "full",
+                        timeStyle: "short",
+                      })}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Location</dt>
+                    <dd>{event.location}</dd>
+                  </div>
+                  <div>
+                    <dt>Eligibility</dt>
+                    <dd>
+                      {event.audience === "official_members"
+                        ? "Official members only"
+                        : "All website users"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Service credit</dt>
+                    <dd>
+                      {(event.service_minutes / 60).toFixed(1)} hours after
+                      attendance is confirmed
+                    </dd>
+                  </div>
                 </dl>
-                {event.is_signed_up&&<strong>You are signed up for this event.</strong>}
+                {event.is_signed_up && (
+                  <strong>You are signed up for this event.</strong>
+                )}
               </div>
             </details>
           </article>
@@ -630,7 +731,11 @@ function HoursPage({
         <form className="workspace-form" onSubmit={submit}>
           <h3>Submit hours</h3>
           <Notice message={message} />
-          <p className="event-hours-explainer">Event hours appear automatically after an administrator confirms your attendance. Use this form only for service completed outside a listed event.</p>
+          <p className="event-hours-explainer">
+            Event hours appear automatically after an administrator confirms
+            your attendance. Use this form only for service completed outside a
+            listed event.
+          </p>
           <label>
             Activity
             <input
@@ -699,6 +804,28 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
     coverUrl: "",
   });
   const [message, setMessage] = useState("");
+  const [uploading, setUploading] = useState(false);
+  async function uploadCover(file: File) {
+    setMessage("");
+    setUploading(true);
+    try {
+      const optimized = await optimizeStoryImage(file);
+      const data = new FormData();
+      data.set("file", optimized);
+      const result = await api<{ public_url: string }>("/api/story-media", {
+        method: "POST",
+        body: data,
+      });
+      setForm((current) => ({ ...current, coverUrl: result.public_url }));
+      setMessage("Image uploaded and optimized.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Unable to upload image",
+      );
+    } finally {
+      setUploading(false);
+    }
+  }
   async function submit(e: FormEvent) {
     e.preventDefault();
     try {
@@ -742,15 +869,31 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
             onChange={(e) => setForm({ ...form, body: e.target.value })}
           />
         </label>
-        <label>
-          Cover image URL
+        <label className="story-image-upload">
+          Story image
           <input
-            value={form.coverUrl}
-            onChange={(e) => setForm({ ...form, coverUrl: e.target.value })}
-            placeholder="Optional—use an uploaded media URL"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void uploadCover(file);
+            }}
           />
+          <small>
+            JPG, PNG, or WebP. Large images are resized automatically for faster
+            loading.
+          </small>
         </label>
-        <button className="button ink">Submit for review →</button>
+        {form.coverUrl && (
+          <img
+            className="story-cover-preview"
+            src={form.coverUrl}
+            alt="Story cover preview"
+          />
+        )}
+        <button className="button ink" disabled={uploading}>
+          {uploading ? "Optimizing image…" : "Submit for review →"}
+        </button>
       </form>
     </>
   );
@@ -847,10 +990,17 @@ type AdminStats = {
   stories_pending: number;
   hours_pending: number;
 };
+const emptyAdminStats: AdminStats = {
+  members: 0,
+  verified_minutes: 0,
+  events: 0,
+  stories_pending: 0,
+  hours_pending: 0,
+};
 export function AdminPortal({ navigate }: { navigate: Navigate }) {
   const [tab, setTab] = useState<AdminTab>("Overview");
   const [user, setUser] = useState<SessionUser | null>(null);
-  const [dashboard, setDashboard] = useState<AdminStats | null>(null);
+  const [dashboard, setDashboard] = useState<AdminStats>(emptyAdminStats);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const refresh = useCallback(async () => {
@@ -866,14 +1016,25 @@ export function AdminPortal({ navigate }: { navigate: Navigate }) {
       setDashboard(result.stats);
     } catch {
       navigate("login");
-    } finally {
-      setLoading(false);
     }
   }, [navigate]);
   useEffect(() => {
-    refresh();
-  }, [refresh]);
-  if (loading || !user || !dashboard) return <Loading />;
+    let active = true;
+    api<{ user: SessionUser | null }>("/api/auth/session")
+      .then((result) => {
+        if (!active) return;
+        if (!result.user) return navigate("login");
+        if (result.user.role === "member") return navigate("portal");
+        setUser(result.user);
+        setLoading(false);
+        void refresh();
+      })
+      .catch(() => navigate("login"));
+    return () => {
+      active = false;
+    };
+  }, [navigate, refresh]);
+  if (loading || !user) return <Loading />;
   const webmaster = user.role === "webmaster";
   const allowed: AdminTab[] = webmaster
     ? [
@@ -887,7 +1048,7 @@ export function AdminPortal({ navigate }: { navigate: Navigate }) {
         "Contact inbox",
         "Settings",
       ]
-    : ["Overview", "Events", "Service hours"];
+    : ["Overview", "Events", "Members", "Service hours"];
   async function logout() {
     await api("/api/auth/logout", { method: "POST" });
     navigate("login");
@@ -956,7 +1117,7 @@ export function AdminPortal({ navigate }: { navigate: Navigate }) {
         {tab === "Events" && (
           <AdminEvents onDashboardChange={refresh} webmaster={webmaster} />
         )}{" "}
-        {tab === "Members" && webmaster && <RealMembersAdmin />}{" "}
+        {tab === "Members" && <RealMembersAdmin webmaster={webmaster} />}{" "}
         {tab === "Service hours" && <HoursAdmin canReview={webmaster} />}{" "}
         {tab === "Site content" && webmaster && <VisualContentEditor />}{" "}
         {tab === "Media library" && webmaster && <MediaAdmin />}{" "}
@@ -1082,7 +1243,7 @@ function RealAdminOverview({
   );
 }
 type AdminUser = SessionUser & { verified_minutes: number; created_at: string };
-function RealMembersAdmin() {
+function RealMembersAdmin({ webmaster }: { webmaster: boolean }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [message, setMessage] = useState("");
   const load = useCallback(
@@ -1111,8 +1272,8 @@ function RealMembersAdmin() {
         <div>
           <h2>Members and administrators</h2>
           <p>
-            The organization account is the protected Webmaster. Other members
-            can be assigned Volunteer Admin access.
+            Approve website users as official members here. Only the Webmaster
+            can change account roles or access status.
           </p>
         </div>
       </div>
@@ -1124,6 +1285,7 @@ function RealMembersAdmin() {
               <th>Member</th>
               <th>Instrument</th>
               <th>Hours</th>
+              <th>Membership</th>
               <th>Status</th>
               <th>Role</th>
             </tr>
@@ -1142,6 +1304,22 @@ function RealMembersAdmin() {
                   <td>{(x.verified_minutes / 60).toFixed(1)} h</td>
                   <td>
                     {owner ? (
+                      <em>official member</em>
+                    ) : (
+                      <select
+                        value={x.membership_status}
+                        onChange={(e) =>
+                          update(x.id, { membershipStatus: e.target.value })
+                        }
+                        aria-label={"Membership for " + x.name}
+                      >
+                        <option value="website_user">website user</option>
+                        <option value="official_member">official member</option>
+                      </select>
+                    )}
+                  </td>
+                  <td>
+                    {owner || !webmaster ? (
                       <em>active</em>
                     ) : (
                       <select
@@ -1157,8 +1335,12 @@ function RealMembersAdmin() {
                     )}
                   </td>
                   <td>
-                    {owner ? (
-                      <em>webmaster · protected</em>
+                    {owner || !webmaster ? (
+                      <em>
+                        {owner
+                          ? "webmaster · protected"
+                          : x.role.replace("_", " ")}
+                      </em>
                     ) : (
                       <select
                         value={x.role}

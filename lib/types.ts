@@ -1,5 +1,6 @@
 export type Role = "member" | "volunteer_admin" | "webmaster";
 export type UserStatus = "active" | "pending" | "inactive";
+export type MembershipStatus = "website_user" | "official_member";
 
 export type SessionUser = {
   id: string;
@@ -9,6 +10,7 @@ export type SessionUser = {
   instrument: string;
   role: Role;
   status: UserStatus;
+  membership_status: MembershipStatus;
 };
 
 export type EventRecord = {
@@ -21,8 +23,12 @@ export type EventRecord = {
   capacity: number;
   service_minutes: number;
   status: "draft" | "open" | "closed" | "completed" | "cancelled";
+  audience: "all_users" | "official_members";
   signup_count: number;
   is_signed_up?: boolean;
+  signup_open?: boolean;
+  can_signup?: boolean;
+  signup_block_reason?: string;
 };
 
 export type EventSignup = {

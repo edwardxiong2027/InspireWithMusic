@@ -3,12 +3,28 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("ships the real Inspire With Music application", async () => {
-  const [page, site, portals, adminEvents, visualEditor, firebase, rules, storageRules, defaults, layout, globalCss, portalCss] = await Promise.all([
+  const [
+    page,
+    site,
+    portals,
+    adminEvents,
+    visualEditor,
+    firebase,
+    rules,
+    storageRules,
+    defaults,
+    layout,
+    globalCss,
+    portalCss,
+  ] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/site/InspireSite.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/site/Portals.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/site/AdminEvents.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/site/VisualContentEditor.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/site/VisualContentEditor.tsx", import.meta.url),
+      "utf8",
+    ),
     readFile(new URL("../lib/firebase.ts", import.meta.url), "utf8"),
     readFile(new URL("../firestore.rules", import.meta.url), "utf8"),
     readFile(new URL("../storage.rules", import.meta.url), "utf8"),
@@ -26,13 +42,19 @@ test("ships the real Inspire With Music application", async () => {
   assert.doesNotMatch(firebase, /signInWithRedirect/);
   assert.doesNotMatch(firebase, /getIdToken\(true\)/);
   assert.match(firebase, /profileCache/);
-  assert.match(firebase, /Promise\.all\(\[getDocs\(hoursQuery\),getDocs\(collection\(firestore,"events"\)\),getDocs\(collection\(firestore,"users"\)\),getDocs\(collection\(firestore,"stories"\)\)\]\)/);
+  assert.match(
+    firebase,
+    /const \[hours, events, users, stories\] = await Promise\.all/,
+  );
   assert.match(portals, /Sign in with Google/);
   assert.match(firebase, /runTransaction/);
   assert.match(firebase, /uploadBytes/);
   assert.match(rules, /volunteer_admin/);
   assert.match(rules, /email_verified/);
-  assert.match(rules, /request\.auth\.token\.email == "inspirewithmusic\.org@gmail\.com"/);
+  assert.match(
+    rules,
+    /request\.auth\.token\.email == "inspirewithmusic\.org@gmail\.com"/,
+  );
   assert.match(storageRules, /request\.resource\.contentType\.matches/);
   assert.match(defaults, /MUSIC BEYOND BORDERS/);
   assert.match(defaults, /impact\.music_shared/);
@@ -43,7 +65,15 @@ test("ships the real Inspire With Music application", async () => {
   assert.match(adminEvents, /Export CSV/);
   assert.match(adminEvents, /Attendance confirmed and service hours awarded/);
   assert.match(adminEvents, /Add volunteer/);
+  assert.match(adminEvents, /Official members only/);
+  assert.match(adminEvents, /End time must be after/);
   assert.match(portals, /View event details/);
+  assert.match(portals, /To become an official Inspire With Music member/);
+  assert.match(portals, /story-media/);
+  assert.match(portals, /optimizeStoryImage/);
+  assert.match(firebase, /membership_status/);
+  assert.match(firebase, /This event is no longer open for signup/);
+  assert.match(storageRules, /story-submissions/);
   assert.match(portals, /Event hours appear automatically/);
   assert.match(firebase, /attendance_status/);
   assert.match(firebase, /event_attendance/);
@@ -64,7 +94,10 @@ test("ships the real Inspire With Music application", async () => {
   assert.match(globalCss, /@media\(max-width:480px\)/);
   assert.match(portalCss, /workspace-menu-button/);
   assert.match(portalCss, /Comfortable dashboard type scale/);
-  assert.match(portalCss, /\.table-card table\{font-size:13px/);
-  assert.match(portalCss, /\.workspace-form label.*font-size:11px/);
-  assert.doesNotMatch(page + site + portals + firebase + layout, /Preview mode: any email|codex-preview|SkeletonPreview|sampleEvents|AWS|PostgreSQL|PGlite/);
+  assert.match(portalCss, /\.table-card table\s*\{\s*font-size: 13px/);
+  assert.match(portalCss, /\.workspace-form label[\s\S]*font-size: 11px/);
+  assert.doesNotMatch(
+    page + site + portals + firebase + layout,
+    /Preview mode: any email|codex-preview|SkeletonPreview|sampleEvents|AWS|PostgreSQL|PGlite/,
+  );
 });

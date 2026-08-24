@@ -29,6 +29,10 @@ service cloud.firestore {
       return volunteerAdmin() || webmaster();
     }
 
+    function validMembership(value) {
+      return value in ["website_user", "official_member"];
+    }
+
     function bootstrapWebmaster() {
       return request.auth.token.email == "inspirewithmusic.org@gmail.com"
         && request.auth.token.email_verified == true;
@@ -39,17 +43,24 @@ service cloud.firestore {
         && request.auth.uid == userId
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.status == "active"
+        && validMembership(request.resource.data.membership_status)
         && (
-          request.resource.data.role == "member"
-          || (request.resource.data.role == "webmaster" && bootstrapWebmaster())
+          (request.resource.data.role == "member" && request.resource.data.membership_status == "website_user")
+          || (request.resource.data.role == "webmaster" && request.resource.data.membership_status == "official_member" && bootstrapWebmaster())
         );
       allow read: if signedIn() && (request.auth.uid == userId || eventCreator());
       allow update: if (webmaster()
           && request.resource.data.role in ["member", "volunteer_admin", "webmaster"]
+          && validMembership(request.resource.data.membership_status)
           && (request.resource.data.role != "webmaster"
             || request.resource.data.email == "inspirewithmusic.org@gmail.com")
           && (resource.data.email != "inspirewithmusic.org@gmail.com"
             || (request.resource.data.role == "webmaster" && request.resource.data.status == "active")))
+        || (volunteerAdmin()
+          && resource.data.role == "member"
+          && request.resource.data.role == "member"
+          && validMembership(request.resource.data.membership_status)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["membership_status", "updated_at"]))
         || (signedIn()
           && request.auth.uid == userId
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "phone", "instrument", "updated_at"]));
@@ -63,10 +74,14 @@ service cloud.firestore {
 
     match /events/{eventId} {
       allow read: if true;
-      allow create: if eventCreator();
+      allow create: if eventCreator()
+        && request.resource.data.audience in ["all_users", "official_members"]
+        && request.resource.data.ends_at_timestamp > request.resource.data.starts_at_timestamp;
       allow delete: if webmaster();
       allow update: if (eventCreator()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["title", "description", "location", "starts_at", "ends_at", "capacity", "service_minutes", "status", "signup_count", "updated_at"])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["title", "description", "location", "starts_at", "ends_at", "starts_at_timestamp", "ends_at_timestamp", "capacity", "service_minutes", "status", "audience", "signup_count", "updated_at"])
+          && request.resource.data.audience in ["all_users", "official_members"]
+          && request.resource.data.ends_at_timestamp > request.resource.data.starts_at_timestamp
           && request.resource.data.signup_count >= 0
           && request.resource.data.signup_count <= request.resource.data.capacity)
         || (activeUser()
@@ -85,11 +100,19 @@ service cloud.firestore {
         allow read: if activeUser() && (request.auth.uid == userId || eventCreator());
         allow create: if (eventCreator()
             && request.resource.data.user_id == userId
-            && request.resource.data.attendance_status == "pending")
+            && request.resource.data.attendance_status == "pending"
+            && (!get(/databases/$(database)/documents/events/$(eventId)).data.keys().hasAny(["audience"])
+              || get(/databases/$(database)/documents/events/$(eventId)).data.audience != "official_members"
+              || get(/databases/$(database)/documents/users/$(userId)).data.membership_status == "official_member"))
           || (activeUser()
             && request.auth.uid == userId
             && request.resource.data.user_id == request.auth.uid
-            && get(/databases/$(database)/documents/events/$(eventId)).data.status == "open");
+            && get(/databases/$(database)/documents/events/$(eventId)).data.status == "open"
+            && (!get(/databases/$(database)/documents/events/$(eventId)).data.keys().hasAny(["starts_at_timestamp"])
+              || request.time < get(/databases/$(database)/documents/events/$(eventId)).data.starts_at_timestamp)
+            && (!get(/databases/$(database)/documents/events/$(eventId)).data.keys().hasAny(["audience"])
+              || get(/databases/$(database)/documents/events/$(eventId)).data.audience != "official_members"
+              || currentProfile().membership_status == "official_member"));
         allow delete: if activeUser() && (request.auth.uid == userId || eventCreator());
         allow update: if eventCreator()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["attendance_status", "attendance_confirmed_by", "attendance_confirmed_at", "updated_at"])

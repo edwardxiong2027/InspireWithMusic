@@ -17,8 +17,8 @@ before(async () => {
     await setDoc(doc(db,"users","admin-1"),{email:"admin@example.com",name:"Admin",role:"volunteer_admin",status:"active"});
     await setDoc(doc(db,"users","webmaster-1"),{email:"inspirewithmusic.org@gmail.com",name:"Webmaster",role:"webmaster",status:"active"});
     await setDoc(doc(db,"content","home.hero_title"),{value:"Music in Action"});
-    await setDoc(doc(db,"service_hours","hour-existing"),{user_id:"member-1",status:"pending",minutes:60,activity:"Workshop"});
-    await setDoc(doc(db,"events","event-existing"),{title:"Existing event",status:"open",capacity:20,signup_count:0});
+    await setDoc(doc(db,"service_hours","hour-existing"),{user_id:"member-1",event_id:null,status:"pending",minutes:60,activity:"Workshop"});
+    await setDoc(doc(db,"events","event-existing"),{title:"Existing event",status:"open",capacity:20,signup_count:0,service_minutes:120,ends_at:"2026-01-01T00:00:00.000Z"});
   });
 });
 
@@ -35,15 +35,16 @@ test("public content is readable but only a webmaster can edit it", async () => 
 
 test("member, volunteer admin, and webmaster capabilities are separated", async () => {
   const memberDb = environment.authenticatedContext("member-1",{email:"member@example.com"}).firestore();
-  await assertSucceeds(setDoc(doc(memberDb,"service_hours","hour-1"),{user_id:"member-1",status:"pending",minutes:90}));
+  await assertSucceeds(setDoc(doc(memberDb,"service_hours","hour-1"),{user_id:"member-1",event_id:null,status:"pending",minutes:90}));
   await assertFails(setDoc(doc(memberDb,"events","event-member"),{title:"Not allowed"}));
   const adminDb = environment.authenticatedContext("admin-1",{email:"admin@example.com"}).firestore();
   await assertSucceeds(setDoc(doc(adminDb,"events","event-admin"),{title:"Community Performance",status:"open",capacity:20,signup_count:0}));
   await assertSucceeds(getDoc(doc(adminDb,"service_hours","hour-existing")));
-  await assertFails(updateDoc(doc(adminDb,"service_hours","hour-existing"),{status:"verified",verified_by:"admin-1",verified_at:"now",updated_at:"now"}));
-  await assertFails(updateDoc(doc(adminDb,"events","event-existing"),{status:"closed"}));
+  await assertSucceeds(setDoc(doc(adminDb,"events","event-existing","signups","member-1"),{user_id:"member-1",member_name:"Member",attendance_status:"pending"}));
+  await assertSucceeds(setDoc(doc(adminDb,"service_hours","event-existing_member-1"),{user_id:"member-1",event_id:"event-existing",source:"event_attendance",status:"verified",minutes:120,activity:"Existing event"}));
+  await assertSucceeds(updateDoc(doc(adminDb,"events","event-existing"),{status:"closed"}));
   await assertFails(deleteDoc(doc(adminDb,"events","event-existing")));
-  await assertFails(getDoc(doc(adminDb,"users","member-1")));
+  await assertSucceeds(getDoc(doc(adminDb,"users","member-1")));
   await assertFails(setDoc(doc(adminDb,"content","about.mission"),{value:"Not allowed"}));
   const webmasterDb = environment.authenticatedContext("webmaster-1",{email:"inspirewithmusic.org@gmail.com",email_verified:true}).firestore();
   await assertSucceeds(updateDoc(doc(webmasterDb,"service_hours","hour-existing"),{status:"verified",verified_by:"webmaster-1",verified_at:"now",updated_at:"now"}));

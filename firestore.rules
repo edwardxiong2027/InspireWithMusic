@@ -43,7 +43,7 @@ service cloud.firestore {
           request.resource.data.role == "member"
           || (request.resource.data.role == "webmaster" && bootstrapWebmaster())
         );
-      allow read: if signedIn() && (request.auth.uid == userId || webmaster());
+      allow read: if signedIn() && (request.auth.uid == userId || eventCreator());
       allow update: if (webmaster()
           && request.resource.data.role in ["member", "volunteer_admin", "webmaster"]
           && (request.resource.data.role != "webmaster"
@@ -65,7 +65,10 @@ service cloud.firestore {
       allow read: if true;
       allow create: if eventCreator();
       allow delete: if webmaster();
-      allow update: if webmaster()
+      allow update: if (eventCreator()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["title", "description", "location", "starts_at", "ends_at", "capacity", "service_minutes", "status", "signup_count", "updated_at"])
+          && request.resource.data.signup_count >= 0
+          && request.resource.data.signup_count <= request.resource.data.capacity)
         || (activeUser()
           && currentProfile().role == "member"
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["signup_count", "updated_at"])
@@ -79,26 +82,44 @@ service cloud.firestore {
           ));
 
       match /signups/{userId} {
-        allow read: if activeUser() && (request.auth.uid == userId || webmaster());
-        allow create: if activeUser()
-          && request.auth.uid == userId
-          && request.resource.data.user_id == request.auth.uid
-          && get(/databases/$(database)/documents/events/$(eventId)).data.status == "open";
-        allow delete: if activeUser() && (request.auth.uid == userId || webmaster());
-        allow update: if webmaster();
+        allow read: if activeUser() && (request.auth.uid == userId || eventCreator());
+        allow create: if (eventCreator()
+            && request.resource.data.user_id == userId
+            && request.resource.data.attendance_status == "pending")
+          || (activeUser()
+            && request.auth.uid == userId
+            && request.resource.data.user_id == request.auth.uid
+            && get(/databases/$(database)/documents/events/$(eventId)).data.status == "open");
+        allow delete: if activeUser() && (request.auth.uid == userId || eventCreator());
+        allow update: if eventCreator()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["attendance_status", "attendance_confirmed_by", "attendance_confirmed_at", "updated_at"])
+          && request.resource.data.attendance_status in ["pending", "attended", "absent"];
       }
     }
 
     match /service_hours/{hourId} {
       allow read: if activeUser() && (resource.data.user_id == request.auth.uid || volunteerAdmin() || webmaster());
       allow create: if activeUser()
-        && currentProfile().role == "member"
-        && request.resource.data.user_id == request.auth.uid
-        && request.resource.data.status == "pending"
-        && request.resource.data.minutes > 0;
-      allow update: if webmaster()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "verified_by", "verified_at", "updated_at"])
-        && request.resource.data.status in ["verified", "rejected"];
+        && request.resource.data.minutes > 0
+        && ((currentProfile().role == "member"
+            && request.resource.data.user_id == request.auth.uid
+            && request.resource.data.event_id == null
+            && request.resource.data.status == "pending")
+          || (eventCreator()
+            && request.resource.data.event_id is string
+            && request.resource.data.source == "event_attendance"
+            && request.resource.data.minutes == get(/databases/$(database)/documents/events/$(request.resource.data.event_id)).data.service_minutes
+            && request.resource.data.status in ["verified", "rejected"]));
+      allow update: if (webmaster()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "verified_by", "verified_at", "updated_at"])
+          && request.resource.data.status in ["verified", "rejected"])
+        || (eventCreator()
+          && request.resource.data.user_id == resource.data.user_id
+          && request.resource.data.event_id == resource.data.event_id
+          && request.resource.data.event_id is string
+          && request.resource.data.source == "event_attendance"
+          && request.resource.data.minutes == get(/databases/$(database)/documents/events/$(request.resource.data.event_id)).data.service_minutes
+          && request.resource.data.status in ["verified", "rejected"]);
       allow delete: if false;
     }
 

@@ -25,6 +25,19 @@ export type EventRecord = {
   is_signed_up?: boolean;
 };
 
+export type EventSignup = {
+  id: string;
+  user_id: string;
+  member_name: string;
+  member_email: string;
+  member_instrument?: string;
+  source: "member" | "admin";
+  attendance_status: "pending" | "attended" | "absent";
+  attendance_confirmed_by?: string;
+  attendance_confirmed_at?: string;
+  created_at: string;
+};
+
 export type ServiceHourRecord = {
   id: string;
   user_id: string;

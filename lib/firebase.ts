@@ -87,6 +87,7 @@ function safeStoryCover(value: string) {
     const url = new URL(value);
     return url.protocol === "https:" &&
       (url.hostname === "firebasestorage.googleapis.com" ||
+        url.hostname === "storage.googleapis.com" ||
         url.hostname.endsWith(".firebasestorage.app"))
       ? value
       : "";
@@ -1037,10 +1038,16 @@ export async function firebaseApi<T>(
       if (!storySnapshot.exists()) throw new Error("Story not found.");
       const session = await requireSession(["member", "webmaster"]);
       if (session.role === "member") {
-        if (method !== "PATCH" || storySnapshot.data().author_id !== session.id)
+        if (storySnapshot.data().author_id !== session.id)
           throw new Error("You can only edit your own story.");
         if (storySnapshot.data().status !== "submitted")
-          throw new Error("Published stories can no longer be edited.");
+          throw new Error(
+            "Published stories can no longer be changed by members.",
+          );
+        if (method === "DELETE") {
+          await deleteDoc(storyRef);
+          return { ok: true } as T;
+        }
         const change: Json = { updated_at: now() };
         if (input.title !== undefined) change.title = String(input.title);
         if (input.excerpt !== undefined) change.excerpt = String(input.excerpt);

@@ -1837,6 +1837,18 @@
   line-height: 1.5;
   margin: 4px 0;
 }
+.story-image-url {
+  color: #617780 !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px !important;
+  overflow-wrap: anywhere;
+}
+.story-submission-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
 .media-category-manager {
   margin-top: 20px;
   padding: 20px;

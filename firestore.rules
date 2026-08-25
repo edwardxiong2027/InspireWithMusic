@@ -167,7 +167,11 @@ service cloud.firestore {
           && resource.data.status == "submitted"
           && request.resource.data.status == "submitted"
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["title", "excerpt", "body", "cover_url", "updated_at"]));
-      allow delete: if webmaster();
+      allow delete: if webmaster()
+        || (activeUser()
+          && currentProfile().role == "member"
+          && resource.data.author_id == request.auth.uid
+          && resource.data.status == "submitted");
     }
 
     match /media_assets/{assetId} {

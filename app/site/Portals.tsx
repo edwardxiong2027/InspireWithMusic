@@ -58,6 +58,7 @@ function safeImageUrl(value: string) {
     const url = new URL(value);
     return url.protocol === "https:" &&
       (url.hostname === "firebasestorage.googleapis.com" ||
+        url.hostname === "storage.googleapis.com" ||
         url.hostname.endsWith(".firebasestorage.app"))
       ? value
       : "";
@@ -902,6 +903,24 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
       setMessage(error instanceof Error ? error.message : "Unable to submit");
     }
   }
+  async function deleteStory(story: MemberStory) {
+    if (
+      story.status !== "submitted" ||
+      !confirm(`Delete “${story.title}” permanently?`)
+    )
+      return;
+    try {
+      await api(`/api/stories/${story.id}`, { method: "DELETE" });
+      if (editingId === story.id) resetForm();
+      await loadStories();
+      setMessage("Your story was deleted.");
+      await onSaved();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Unable to delete story",
+      );
+    }
+  }
   return (
     <>
       <PortalTitle eyebrow="STORIES IN ACTION" title="Share your experience." />
@@ -1008,6 +1027,11 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
             <div>
               <p className="eyebrow">{story.status}</p>
               <h3>{story.title}</h3>
+              <p className="story-image-url">
+                {safeImageUrl(story.cover_url)
+                  ? `Image URL: ${safeImageUrl(story.cover_url)}`
+                  : "No valid uploaded image"}
+              </p>
               <p>{story.excerpt}</p>
               <details>
                 <summary>Read current version</summary>
@@ -1015,12 +1039,20 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
               </details>
             </div>
             {story.status === "submitted" && (
-              <button
-                className="outline-button"
-                onClick={() => editStory(story)}
-              >
-                Edit submission
-              </button>
+              <div className="story-submission-actions">
+                <button
+                  className="outline-button"
+                  onClick={() => editStory(story)}
+                >
+                  Edit submission
+                </button>
+                <button
+                  className="danger-link"
+                  onClick={() => void deleteStory(story)}
+                >
+                  Delete submission
+                </button>
+              </div>
             )}
           </article>
         ))}
@@ -2005,6 +2037,11 @@ function StoriesAdmin() {
               {x.author_name} · {x.status}
             </p>
             <h3>{x.title}</h3>
+            <p className="story-image-url">
+              {safeImageUrl(x.cover_url)
+                ? `Image URL: ${safeImageUrl(x.cover_url)}`
+                : "No valid uploaded image"}
+            </p>
             <span>{x.excerpt}</span>
             <details>
               <summary>Read submission</summary>

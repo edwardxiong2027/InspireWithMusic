@@ -1825,29 +1825,33 @@ function MediaAdmin() {
                   ?.name || "Uncategorized"}
               </span>
               <span>{(x.byte_size / 1024).toFixed(0)} KB</span>
-              <button
-                onClick={() => navigator.clipboard.writeText(x.public_url)}
-              >
-                Copy URL
-              </button>
-              <button
-                onClick={() => {
-                  setEditingAsset(x.id);
-                  setAssetEdit({
-                    filename: x.filename,
-                    altText: x.alt_text,
-                    categoryId: x.category_id || "",
-                  });
-                }}
-              >
-                Edit details
-              </button>
-              <button
-                className="danger-link"
-                onClick={() => void removeAsset(x)}
-              >
-                Delete
-              </button>
+              <div className="media-actions">
+                <button
+                  className="media-action-copy"
+                  onClick={() => navigator.clipboard.writeText(x.public_url)}
+                >
+                  Copy URL
+                </button>
+                <button
+                  className="media-action-edit"
+                  onClick={() => {
+                    setEditingAsset(x.id);
+                    setAssetEdit({
+                      filename: x.filename,
+                      altText: x.alt_text,
+                      categoryId: x.category_id || "",
+                    });
+                  }}
+                >
+                  Edit details
+                </button>
+                <button
+                  className="media-action-delete danger-link"
+                  onClick={() => void removeAsset(x)}
+                >
+                  Delete
+                </button>
+              </div>
               {editingAsset === x.id && (
                 <div className="media-asset-editor">
                   <input

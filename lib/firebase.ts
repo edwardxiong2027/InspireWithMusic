@@ -1012,9 +1012,27 @@ export async function firebaseApi<T>(
     }
     const storyMatch = url.match(/^\/api\/stories\/([^/]+)$/);
     if (storyMatch && (method === "PATCH" || method === "DELETE")) {
-      const reviewer = await requireSession(["webmaster"]);
+      const storyRef = doc(firestore, "stories", storyMatch[1]);
+      const storySnapshot = await getDoc(storyRef);
+      if (!storySnapshot.exists()) throw new Error("Story not found.");
+      const session = await requireSession(["member", "webmaster"]);
+      if (session.role === "member") {
+        if (method !== "PATCH" || storySnapshot.data().author_id !== session.id)
+          throw new Error("You can only edit your own story.");
+        if (storySnapshot.data().status !== "submitted")
+          throw new Error("Published stories can no longer be edited.");
+        const change: Json = { updated_at: now() };
+        if (input.title !== undefined) change.title = String(input.title);
+        if (input.excerpt !== undefined) change.excerpt = String(input.excerpt);
+        if (input.body !== undefined) change.body = String(input.body);
+        if (input.coverUrl !== undefined)
+          change.cover_url = String(input.coverUrl);
+        await updateDoc(storyRef, change);
+        return { ok: true } as T;
+      }
+      const reviewer = session;
       if (method === "DELETE" || input.status === "rejected") {
-        await deleteDoc(doc(firestore, "stories", storyMatch[1]));
+        await deleteDoc(storyRef);
         return { ok: true } as T;
       }
       const status = String(input.status);
@@ -1031,7 +1049,7 @@ export async function firebaseApi<T>(
         change.status = status;
         change.published_at = status === "published" ? now() : "";
       }
-      await updateDoc(doc(firestore, "stories", storyMatch[1]), change);
+      await updateDoc(storyRef, change);
       return { ok: true } as T;
     }
 

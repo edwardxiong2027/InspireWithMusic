@@ -1795,6 +1795,57 @@
 .story-edit-form textarea {
   min-height: 120px;
 }
+.story-review-media {
+  display: block;
+  color: var(--coral);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.story-review-media span {
+  color: var(--coral);
+}
+.story-form-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.member-story-list {
+  margin-top: 34px;
+}
+.member-story-list > article {
+  display: grid;
+  grid-template-columns: 180px 1fr auto;
+  gap: 20px;
+  align-items: start;
+  border-top: 1px solid var(--line);
+  padding: 20px 0;
+  background: var(--paper);
+}
+.member-story-list > article > img {
+  width: 180px;
+  height: 120px;
+  object-fit: cover;
+}
+.member-story-list h3 {
+  font: 600 20px var(--body);
+  margin: 0 0 5px;
+}
+.member-story-list article p {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 4px 0;
+}
+@media (max-width: 700px) {
+  .member-story-list > article {
+    grid-template-columns: 1fr;
+  }
+  .member-story-list > article > img {
+    width: 100%;
+    height: 190px;
+  }
+}
 
 @media (max-width: 760px) {
   .workspace-menu-button,

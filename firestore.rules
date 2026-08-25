@@ -159,8 +159,14 @@ service cloud.firestore {
         && currentProfile().role == "member"
         && request.resource.data.author_id == request.auth.uid
         && request.resource.data.status == "submitted";
-      allow update: if webmaster()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["title", "excerpt", "body", "cover_url", "status", "reviewer_id", "published_at", "updated_at"]);
+      allow update: if (webmaster()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["title", "excerpt", "body", "cover_url", "status", "reviewer_id", "published_at", "updated_at"]))
+        || (activeUser()
+          && currentProfile().role == "member"
+          && resource.data.author_id == request.auth.uid
+          && resource.data.status == "submitted"
+          && request.resource.data.status == "submitted"
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["title", "excerpt", "body", "cover_url", "updated_at"]));
       allow delete: if webmaster();
     }
 

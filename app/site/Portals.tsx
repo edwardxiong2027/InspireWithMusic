@@ -808,14 +808,32 @@ function HoursPage({
   );
 }
 function StorySubmission({ onSaved }: { onSaved: () => void }) {
+  type MemberStory = {
+    id: string;
+    title: string;
+    excerpt: string;
+    body: string;
+    cover_url: string;
+    status: string;
+    created_at: string;
+  };
   const [form, setForm] = useState({
     title: "",
     excerpt: "",
     body: "",
     coverUrl: "",
   });
+  const [stories, setStories] = useState<MemberStory[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [uploading, setUploading] = useState(false);
+  const loadStories = useCallback(async () => {
+    const result = await api<{ stories: MemberStory[] }>("/api/stories");
+    setStories(result.stories);
+  }, []);
+  useEffect(() => {
+    void loadStories();
+  }, [loadStories]);
   async function uploadCover(file: File) {
     setMessage("");
     setUploading(true);
@@ -837,13 +855,34 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
       setUploading(false);
     }
   }
+  function resetForm() {
+    setEditingId(null);
+    setForm({ title: "", excerpt: "", body: "", coverUrl: "" });
+  }
+  function editStory(story: MemberStory) {
+    if (story.status !== "submitted") return;
+    setEditingId(story.id);
+    setForm({
+      title: story.title,
+      excerpt: story.excerpt,
+      body: story.body,
+      coverUrl: story.cover_url,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
   async function submit(e: FormEvent) {
     e.preventDefault();
     try {
-      await api("/api/stories", { method: "POST", body: JSON.stringify(form) });
-      setForm({ title: "", excerpt: "", body: "", coverUrl: "" });
+      await api(editingId ? `/api/stories/${editingId}` : "/api/stories", {
+        method: editingId ? "PATCH" : "POST",
+        body: JSON.stringify(form),
+      });
+      await loadStories();
+      resetForm();
       setMessage(
-        "Submitted. A webmaster will review your story before publication.",
+        editingId
+          ? "Your story was updated."
+          : "Submitted. A webmaster will review your story before publication.",
       );
       onSaved();
     } catch (error) {
@@ -902,10 +941,68 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
             alt="Story cover preview"
           />
         )}
-        <button className="button ink" disabled={uploading}>
-          {uploading ? "Optimizing image…" : "Submit for review →"}
-        </button>
+        <div className="story-form-actions">
+          <button className="button ink" disabled={uploading}>
+            {uploading
+              ? "Optimizing image…"
+              : editingId
+                ? "Save story edits →"
+                : "Submit for review →"}
+          </button>
+          {editingId && (
+            <button
+              type="button"
+              className="outline-button"
+              onClick={resetForm}
+            >
+              Cancel edit
+            </button>
+          )}
+        </div>
       </form>
+      <section className="member-story-list">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">
+              <span>✎</span>YOUR SUBMISSIONS
+            </p>
+            <h2>Stories in progress.</h2>
+          </div>
+        </div>
+        {!stories.length && (
+          <div className="empty-row">
+            Your submitted stories will stay here for review.
+          </div>
+        )}
+        {stories.map((story) => (
+          <article key={story.id}>
+            {story.cover_url && (
+              <img
+                src={story.cover_url}
+                alt={`${story.title} cover`}
+                loading="lazy"
+              />
+            )}
+            <div>
+              <p className="eyebrow">{story.status}</p>
+              <h3>{story.title}</h3>
+              <p>{story.excerpt}</p>
+              <details>
+                <summary>Read current version</summary>
+                <p>{story.body}</p>
+              </details>
+            </div>
+            {story.status === "submitted" && (
+              <button
+                className="outline-button"
+                onClick={() => editStory(story)}
+              >
+                Edit submission
+              </button>
+            )}
+          </article>
+        ))}
+      </section>
     </>
   );
 }
@@ -1647,12 +1744,20 @@ function StoriesAdmin() {
         <article key={x.id}>
           <div>
             {x.cover_url && (
-              <img
-                className="story-review-image"
-                src={x.cover_url}
-                alt={`${x.title} cover`}
-                loading="lazy"
-              />
+              <a
+                className="story-review-media"
+                href={x.cover_url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <img
+                  className="story-review-image"
+                  src={x.cover_url}
+                  alt={`${x.title} cover`}
+                  loading="lazy"
+                />
+                <span>Open uploaded image ↗</span>
+              </a>
             )}
             <p>
               {x.author_name} · {x.status}

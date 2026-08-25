@@ -53,6 +53,19 @@ async function optimizeStoryImage(file: File): Promise<File> {
   }
 }
 
+function safeImageUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      (url.hostname === "firebasestorage.googleapis.com" ||
+        url.hostname.endsWith(".firebasestorage.app"))
+      ? value
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 function AppLogo({
   navigate,
   inverse = true,
@@ -934,10 +947,10 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
             loading.
           </small>
         </label>
-        {form.coverUrl && (
+        {safeImageUrl(form.coverUrl) && (
           <img
             className="story-cover-preview"
-            src={form.coverUrl}
+            src={safeImageUrl(form.coverUrl)}
             alt="Story cover preview"
           />
         )}
@@ -958,6 +971,15 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
               Cancel edit
             </button>
           )}
+          {form.coverUrl && (
+            <button
+              type="button"
+              className="danger-link"
+              onClick={() => setForm({ ...form, coverUrl: "" })}
+            >
+              Remove image
+            </button>
+          )}
         </div>
       </form>
       <section className="member-story-list">
@@ -976,9 +998,9 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
         )}
         {stories.map((story) => (
           <article key={story.id}>
-            {story.cover_url && (
+            {safeImageUrl(story.cover_url) && (
               <img
-                src={story.cover_url}
+                src={safeImageUrl(story.cover_url)}
                 alt={`${story.title} cover`}
                 loading="lazy"
               />
@@ -1878,6 +1900,7 @@ function StoriesAdmin() {
   const [stories, setStories] = useState<StoryRecord[]>([]);
   const [message, setMessage] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [editForm, setEditForm] = useState({
     title: "",
     excerpt: "",
@@ -1920,6 +1943,26 @@ function StoriesAdmin() {
     setMessage("Story updated.");
     await load();
   }
+  async function uploadEditImage(file: File) {
+    setUploadingImage(true);
+    try {
+      const optimized = await optimizeStoryImage(file);
+      const data = new FormData();
+      data.set("file", optimized);
+      const result = await api<{ public_url: string }>("/api/story-media", {
+        method: "POST",
+        body: data,
+      });
+      setEditForm((current) => ({ ...current, coverUrl: result.public_url }));
+      setMessage("Replacement image uploaded.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Unable to upload image",
+      );
+    } finally {
+      setUploadingImage(false);
+    }
+  }
   async function remove(id: string) {
     if (!confirm("Delete this story permanently?")) return;
     await api(`/api/stories/${id}`, { method: "DELETE" });
@@ -1938,16 +1981,16 @@ function StoriesAdmin() {
       {stories.map((x) => (
         <article key={x.id}>
           <div>
-            {x.cover_url && (
+            {safeImageUrl(x.cover_url) && (
               <a
                 className="story-review-media"
-                href={x.cover_url}
+                href={safeImageUrl(x.cover_url)}
                 target="_blank"
                 rel="noreferrer"
               >
                 <img
                   className="story-review-image"
-                  src={x.cover_url}
+                  src={safeImageUrl(x.cover_url)}
                   alt={`${x.title} cover`}
                   loading="lazy"
                 />
@@ -2009,6 +2052,25 @@ function StoriesAdmin() {
                     }
                   />
                 </label>
+                <label>
+                  Replace image
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    disabled={uploadingImage}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void uploadEditImage(file);
+                    }}
+                  />
+                </label>
+                {safeImageUrl(editForm.coverUrl) && (
+                  <img
+                    className="story-cover-preview"
+                    src={safeImageUrl(editForm.coverUrl)}
+                    alt="Edited story cover preview"
+                  />
+                )}
                 <button className="button ink">Save edits</button>
               </form>
             )}

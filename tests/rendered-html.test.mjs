@@ -81,6 +81,10 @@ test("ships the real Inspire With Music application", async () => {
   assert.match(portals, /Delete/);
   assert.match(firebase, /media_categories/);
   assert.match(firebase, /categoryId/);
+  assert.match(firebase, /safeStoryCover/);
+  assert.match(portals, /Remove image/);
+  assert.match(portals, /Replace image/);
+  assert.match(portals, /Open uploaded image/);
   assert.match(firebase, /requireSession\(\["member"\]\)/);
   assert.match(firebase, /status === "rejected"/);
   assert.match(firebase, /membership_status/);

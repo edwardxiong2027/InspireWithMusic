@@ -82,6 +82,18 @@ type FirebaseApiOptions = RequestInit & { body?: BodyInit | null };
 function now() {
   return new Date().toISOString();
 }
+function safeStoryCover(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      (url.hostname === "firebasestorage.googleapis.com" ||
+        url.hostname.endsWith(".firebasestorage.app"))
+      ? value
+      : "";
+  } catch {
+    return "";
+  }
+}
 function asJson(options?: FirebaseApiOptions): Json {
   if (!options?.body || options.body instanceof FormData) return {};
   return JSON.parse(String(options.body)) as Json;
@@ -285,8 +297,8 @@ export async function getPublicStories() {
       ),
     );
     return sortNewest(
-      snapshot.docs.map((item) =>
-        withId<{
+      snapshot.docs.map((item) => ({
+        ...withId<{
           id: string;
           title: string;
           excerpt: string;
@@ -295,7 +307,8 @@ export async function getPublicStories() {
           published_at: string;
           created_at: string;
         }>(item.id, item.data()),
-      ),
+        cover_url: safeStoryCover(String(item.data().cover_url ?? "")),
+      })),
     );
   } catch {
     return [];
@@ -970,12 +983,13 @@ export async function firebaseApi<T>(
       const snapshot = await getDocs(source);
       return {
         stories: sortNewest(
-          snapshot.docs.map((item) =>
-            withId<{ id: string; created_at: string } & Json>(
+          snapshot.docs.map((item) => ({
+            ...withId<{ id: string; created_at: string } & Json>(
               item.id,
               item.data(),
             ),
-          ),
+            cover_url: safeStoryCover(String(item.data().cover_url ?? "")),
+          })),
         ),
       } as T;
     }
@@ -987,7 +1001,7 @@ export async function firebaseApi<T>(
         title: String(input.title ?? ""),
         excerpt: String(input.excerpt ?? ""),
         body: String(input.body ?? ""),
-        cover_url: String(input.coverUrl ?? ""),
+        cover_url: safeStoryCover(String(input.coverUrl ?? "")),
         status: "submitted",
         created_at: now(),
         updated_at: now(),
@@ -1032,7 +1046,7 @@ export async function firebaseApi<T>(
         if (input.excerpt !== undefined) change.excerpt = String(input.excerpt);
         if (input.body !== undefined) change.body = String(input.body);
         if (input.coverUrl !== undefined)
-          change.cover_url = String(input.coverUrl);
+          change.cover_url = safeStoryCover(String(input.coverUrl));
         await updateDoc(storyRef, change);
         return { ok: true } as T;
       }
@@ -1050,7 +1064,7 @@ export async function firebaseApi<T>(
       if (input.excerpt !== undefined) change.excerpt = String(input.excerpt);
       if (input.body !== undefined) change.body = String(input.body);
       if (input.coverUrl !== undefined)
-        change.cover_url = String(input.coverUrl);
+        change.cover_url = safeStoryCover(String(input.coverUrl));
       if (input.status !== undefined) {
         change.status = status;
         change.published_at = status === "published" ? now() : "";

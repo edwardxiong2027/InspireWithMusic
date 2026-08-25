@@ -56,15 +56,24 @@ async function optimizeStoryImage(file: File): Promise<File> {
 function safeImageUrl(value: string) {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" &&
-      (url.hostname === "firebasestorage.googleapis.com" ||
-        url.hostname === "storage.googleapis.com" ||
-        url.hostname.endsWith(".firebasestorage.app"))
-      ? value
-      : "";
+    const trustedHost =
+      url.hostname === "firebasestorage.googleapis.com" ||
+      url.hostname === "storage.googleapis.com" ||
+      url.hostname.endsWith(".firebasestorage.app") ||
+      url.hostname === "images.unsplash.com" ||
+      url.hostname === "plus.unsplash.com" ||
+      url.hostname === "images.pexels.com" ||
+      url.hostname === "cdn.pixabay.com";
+    return url.protocol === "https:" && trustedHost ? value : "";
   } catch {
     return "";
   }
+}
+
+function storyImageUrl(story: Partial<MemberStory> & Record<string, unknown>) {
+  return safeImageUrl(
+    String(story.cover_url ?? story.image_url ?? story.coverUrl ?? ""),
+  );
 }
 
 function AppLogo({
@@ -1017,9 +1026,9 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
         )}
         {stories.map((story) => (
           <article key={story.id}>
-            {safeImageUrl(story.cover_url) && (
+            {storyImageUrl(story) && (
               <img
-                src={safeImageUrl(story.cover_url)}
+                src={storyImageUrl(story)}
                 alt={`${story.title} cover`}
                 loading="lazy"
               />
@@ -1028,8 +1037,8 @@ function StorySubmission({ onSaved }: { onSaved: () => void }) {
               <p className="eyebrow">{story.status}</p>
               <h3>{story.title}</h3>
               <p className="story-image-url">
-                {safeImageUrl(story.cover_url)
-                  ? `Image URL: ${safeImageUrl(story.cover_url)}`
+                {storyImageUrl(story)
+                  ? `Image URL: ${storyImageUrl(story)}`
                   : "No valid uploaded image"}
               </p>
               <p>{story.excerpt}</p>
@@ -2017,16 +2026,16 @@ function StoriesAdmin() {
       {stories.map((x) => (
         <article key={x.id}>
           <div>
-            {safeImageUrl(x.cover_url) && (
+            {storyImageUrl(x) && (
               <a
                 className="story-review-media"
-                href={safeImageUrl(x.cover_url)}
+                href={storyImageUrl(x)}
                 target="_blank"
                 rel="noreferrer"
               >
                 <img
                   className="story-review-image"
-                  src={safeImageUrl(x.cover_url)}
+                  src={storyImageUrl(x)}
                   alt={`${x.title} cover`}
                   loading="lazy"
                 />
@@ -2038,8 +2047,8 @@ function StoriesAdmin() {
             </p>
             <h3>{x.title}</h3>
             <p className="story-image-url">
-              {safeImageUrl(x.cover_url)
-                ? `Image URL: ${safeImageUrl(x.cover_url)}`
+              {storyImageUrl(x)
+                ? `Image URL: ${storyImageUrl(x)}`
                 : "No valid uploaded image"}
             </p>
             <span>{x.excerpt}</span>

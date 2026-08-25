@@ -85,12 +85,15 @@ function now() {
 function safeStoryCover(value: string) {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" &&
-      (url.hostname === "firebasestorage.googleapis.com" ||
-        url.hostname === "storage.googleapis.com" ||
-        url.hostname.endsWith(".firebasestorage.app"))
-      ? value
-      : "";
+    const trustedHost =
+      url.hostname === "firebasestorage.googleapis.com" ||
+      url.hostname === "storage.googleapis.com" ||
+      url.hostname.endsWith(".firebasestorage.app") ||
+      url.hostname === "images.unsplash.com" ||
+      url.hostname === "plus.unsplash.com" ||
+      url.hostname === "images.pexels.com" ||
+      url.hostname === "cdn.pixabay.com";
+    return url.protocol === "https:" && trustedHost ? value : "";
   } catch {
     return "";
   }
@@ -308,7 +311,14 @@ export async function getPublicStories() {
           published_at: string;
           created_at: string;
         }>(item.id, item.data()),
-        cover_url: safeStoryCover(String(item.data().cover_url ?? "")),
+        cover_url: safeStoryCover(
+          String(
+            item.data().cover_url ??
+              item.data().image_url ??
+              item.data().coverUrl ??
+              "",
+          ),
+        ),
       })),
     );
   } catch {
@@ -989,7 +999,14 @@ export async function firebaseApi<T>(
               item.id,
               item.data(),
             ),
-            cover_url: safeStoryCover(String(item.data().cover_url ?? "")),
+            cover_url: safeStoryCover(
+              String(
+                item.data().cover_url ??
+                  item.data().image_url ??
+                  item.data().coverUrl ??
+                  "",
+              ),
+            ),
           })),
         ),
       } as T;

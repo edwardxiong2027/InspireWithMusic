@@ -2,74 +2,2262 @@
 /* eslint-disable @next/next/no-img-element */
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import type { ContentEntry, EventRecord, ServiceHourRecord, SessionUser } from "@/lib/types";
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import type { EventRecord, ServiceHourRecord, SessionUser } from "@/lib/types";
+import {
+  completeGoogleRedirectLogin,
+  firebaseApi,
+  loginWithGoogle,
+} from "@/lib/firebase";
 import { officialImages } from "./content";
+import { VisualContentEditor } from "./VisualContentEditor";
+import { AdminEvents } from "./AdminEvents";
 
-type Navigate = (route: "home"|"login"|"portal"|"admin") => void;
+type Navigate = (route: "home" | "login" | "portal" | "admin") => void;
 type Json = Record<string, unknown>;
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, { ...options, headers: options?.body instanceof FormData ? options.headers : { "content-type":"application/json", ...options?.headers } });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "The request could not be completed");
-  return data as T;
+  return firebaseApi<T>(url, options);
 }
 
-function AppLogo({ navigate, inverse=true }:{navigate:Navigate;inverse?:boolean}){return <button className={`logo ${inverse?"logo-inverse":""}`} onClick={()=>navigate("home")}><span className="logo-mark"><i/><i/><i/><i/></span><span><b>INSPIRE</b><em>WITH MUSIC</em></span></button>}
-function Notice({message,error=false}:{message:string;error?:boolean}){return message?<div className={`form-notice ${error?"error":"success"}`}>{message}</div>:null}
-function Loading(){return <div className="portal-loading"><span>♫</span><p>Loading your workspace…</p></div>}
-
-export function LoginApp({navigate}:{navigate:Navigate}){
-  const [mode,setMode]=useState<"signin"|"create">("signin");
-  const [busy,setBusy]=useState(false); const [message,setMessage]=useState("");
-  const [form,setForm]=useState({name:"",email:"",password:"",instrument:""});
-  useEffect(()=>{api<{user:SessionUser|null}>("/api/auth/session").then(({user})=>{if(user)navigate(user.role==="member"?"portal":"admin")}).catch(()=>{})},[navigate]);
-  async function submit(event:FormEvent){event.preventDefault();setBusy(true);setMessage("");try{const path=mode==="signin"?"/api/auth/login":"/api/auth/signup";const result=await api<{user:SessionUser}>(path,{method:"POST",body:JSON.stringify(form)});navigate(result.user.role==="member"?"portal":"admin")}catch(error){setMessage(error instanceof Error?error.message:"Unable to sign in")}finally{setBusy(false)}}
-  return <div className="auth-page"><div className="auth-photo"><AppLogo navigate={navigate}/><img src={officialImages.hero} alt="Youth orchestra performance"/><div/><blockquote>“The best part of making music is discovering who it can reach.”</blockquote></div><div className="auth-panel"><button className="back-link" onClick={()=>navigate("home")}>← Back to site</button><div className="auth-box"><p className="eyebrow">SECURE MEMBER PORTAL</p><h1>{mode==="signin"?"Welcome back.":"Join the movement."}</h1><p>{mode==="signin"?"Sign in to find events, manage your profile, and track service.":"Create your volunteer account. Your information is stored securely."}</p><Notice message={message} error/><form onSubmit={submit}>{mode==="create"&&<><label>Full name<input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label><label>Primary instrument<input value={form.instrument} onChange={e=>setForm({...form,instrument:e.target.value})} placeholder="Violin, cello, piano…"/></label></>}<label>Email address<input required type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></label><label>Password<input required minLength={mode==="create"?10:1} type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></label><button className="button coral" disabled={busy}>{busy?"Please wait…":mode==="signin"?"Sign in →":"Create account →"}</button></form><div className="auth-switch">{mode==="signin"?"New to Inspire With Music?":"Already a member?"}<button onClick={()=>{setMode(mode==="signin"?"create":"signin");setMessage("")}}>{mode==="signin"?"Create an account":"Sign in"}</button></div></div></div></div>
+async function optimizeStoryImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/"))
+    throw new Error("Choose a JPG, PNG, or WebP image.");
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context)
+      throw new Error("Image processing is unavailable in this browser.");
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/webp", 0.82),
+    );
+    if (!blob) throw new Error("The image could not be optimized.");
+    return new File(
+      [blob],
+      `${file.name.replace(/\.[^.]+$/, "") || "story"}.webp`,
+      {
+        type: "image/webp",
+      },
+    );
+  } catch (error) {
+    if (file.size <= 5 * 1024 * 1024) return file;
+    throw error instanceof Error
+      ? error
+      : new Error("The image could not be optimized.");
+  }
 }
 
-type MemberTab="Overview"|"Opportunities"|"My hours"|"Submit a story"|"My profile";
-export function MemberPortal({navigate}:{navigate:Navigate}){
-  const [tab,setTab]=useState<MemberTab>("Overview"); const [user,setUser]=useState<SessionUser|null>(null); const [events,setEvents]=useState<EventRecord[]>([]); const [hours,setHours]=useState<ServiceHourRecord[]>([]); const [totals,setTotals]=useState({verified_minutes:0,pending_minutes:0}); const [loading,setLoading]=useState(true); const [message,setMessage]=useState("");
-  const load=useCallback(async()=>{try{const [dash,eventData,hourData]=await Promise.all([api<{user:SessionUser;totals:{verified_minutes:number;pending_minutes:number}}>("/api/dashboard"),api<{events:EventRecord[]}>("/api/events"),api<{hours:ServiceHourRecord[]}>("/api/hours")]);if(dash.user.role!=="member"){navigate("admin");return}setUser(dash.user);setTotals(dash.totals);setEvents(eventData.events);setHours(hourData.hours)}catch{navigate("login")}finally{setLoading(false)}},[navigate]);
-  useEffect(()=>{load()},[load]);
-  async function logout(){await api("/api/auth/logout",{method:"POST"});navigate("login")}
-  async function toggleSignup(event:EventRecord){setMessage("");try{await api(`/api/events/${event.id}/signup`,{method:event.is_signed_up?"DELETE":"POST"});setMessage(event.is_signed_up?"Signup cancelled.":"You are signed up!");await load()}catch(error){setMessage(error instanceof Error?error.message:"Unable to update signup")}}
-  if(loading||!user)return <Loading/>;
-  const verifiedHours=totals.verified_minutes/60;
-  return <div className="portal-shell"><MemberSidebar navigate={navigate} tab={tab} setTab={setTab} logout={logout}/><main className="portal-main"><div className="portal-top"><div><p>MEMBER WORKSPACE</p><h1>Hello, <em>{user.name.split(" ")[0]}.</em></h1></div><button className="avatar">{user.name.split(" ").map(x=>x[0]).slice(0,2).join("")}</button></div><Notice message={message}/>{tab==="Overview"&&<MemberOverview user={user} events={events} hours={hours} verifiedHours={verifiedHours} pendingMinutes={totals.pending_minutes} toggleSignup={toggleSignup} setTab={setTab}/>} {tab==="Opportunities"&&<Opportunities events={events} toggleSignup={toggleSignup}/>} {tab==="My hours"&&<HoursPage hours={hours} events={events} onSaved={load}/>} {tab==="Submit a story"&&<StorySubmission onSaved={()=>setMessage("Your story was submitted for review.")}/>} {tab==="My profile"&&<ProfileForm user={user} onSaved={load}/>}</main></div>
+function safeImageUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const trustedHost =
+      url.hostname === "firebasestorage.googleapis.com" ||
+      url.hostname === "storage.googleapis.com" ||
+      url.hostname.endsWith(".firebasestorage.app") ||
+      url.hostname === "images.unsplash.com" ||
+      url.hostname === "plus.unsplash.com" ||
+      url.hostname === "images.pexels.com" ||
+      url.hostname === "cdn.pixabay.com";
+    return url.protocol === "https:" && trustedHost ? value : "";
+  } catch {
+    return "";
+  }
 }
 
-function MemberSidebar({navigate,tab,setTab,logout}:{navigate:Navigate;tab:MemberTab;setTab:(x:MemberTab)=>void;logout:()=>void}){const tabs:MemberTab[]=["Overview","Opportunities","My hours","Submit a story","My profile"];const [open,setOpen]=useState(false);return <aside className={`portal-sidebar ${open?"workspace-menu-open":""}`}><AppLogo navigate={navigate}/><button className="workspace-menu-button" onClick={()=>setOpen(!open)} aria-expanded={open} aria-controls="member-workspace-navigation"><span>{open?"Close":"Menu"}</span><b aria-hidden="true">{open?"×":"☰"}</b></button><nav id="member-workspace-navigation">{tabs.map((x,i)=><button key={x} className={tab===x?"selected":""} onClick={()=>{setTab(x);setOpen(false)}}><b>{["⌂","◫","◴","✎","♙"][i]}</b><span>{x}</span></button>)}</nav><div><button onClick={()=>navigate("home")}>↗ <span>View website</span></button><button onClick={logout}>↪ <span>Sign out</span></button></div></aside>}
-function MemberOverview({events,hours,verifiedHours,pendingMinutes,toggleSignup,setTab}:{user:SessionUser;events:EventRecord[];hours:ServiceHourRecord[];verifiedHours:number;pendingMinutes:number;toggleSignup:(x:EventRecord)=>void;setTab:(x:MemberTab)=>void}){return <><div className="portal-hero"><div><p>YOUR VERIFIED IMPACT</p><b>{verifiedHours.toFixed(1)}</b><span>service hours</span><div className="progress"><i style={{width:`${Math.min(100,verifiedHours/40*100)}%`}}/></div><small>{(pendingMinutes/60).toFixed(1)} hours awaiting verification</small></div><span className="portal-note">♪</span></div><div className="section-heading"><div><p className="eyebrow"><span>♪</span>OPEN OPPORTUNITIES</p><h2>Where will you make a difference next?</h2></div><button className="text-link" onClick={()=>setTab("Opportunities")}>View all →</button></div><EventList events={events.filter(x=>x.status==="open").slice(0,3)} toggleSignup={toggleSignup}/><div className="portal-bottom-grid"><div className="hours-card"><p className="eyebrow">RECENT SERVICE</p><h2>Your hours</h2>{hours.slice(0,4).map(x=><div key={x.id}><span>{x.activity}</span><b>{(x.minutes/60).toFixed(1)} h</b><em>{x.status}</em></div>)}{!hours.length&&<p>No hours submitted yet.</p>}<button onClick={()=>setTab("My hours")}>View and submit hours →</button></div><div className="story-submit"><span>✦</span><h2>Share your story</h2><p>Submit a reflection from your latest volunteer experience.</p><button onClick={()=>setTab("Submit a story")}>Start a submission →</button></div></div></>}
-function EventList({events,toggleSignup}:{events:EventRecord[];toggleSignup:(x:EventRecord)=>void}){return <div className="event-list">{events.map(event=>{const date=new Date(event.starts_at);return <article key={event.id}><div className="event-date"><b>{date.getDate()}</b><span>{date.toLocaleString("en",{month:"short"}).toUpperCase()}</span></div><div><h3>{event.title}</h3><p>{date.toLocaleString([], {dateStyle:"medium",timeStyle:"short"})} · {event.location}</p></div><span className="spots">{Math.max(0,event.capacity-event.signup_count)} spots</span><button className={event.is_signed_up?"joined":""} disabled={event.status!=="open"} onClick={()=>toggleSignup(event)}>{event.is_signed_up?"Signed up ✓":event.status==="open"?"Sign up →":"Closed"}</button></article>})}{!events.length&&<div className="empty-row">No opportunities are open right now.</div>}</div>}
-function Opportunities({events,toggleSignup}:{events:EventRecord[];toggleSignup:(x:EventRecord)=>void}){return <><PortalTitle eyebrow="VOLUNTEER OPPORTUNITIES" title="Find your next event."/><EventList events={events} toggleSignup={toggleSignup}/></>}
-function HoursPage({hours,events,onSaved}:{hours:ServiceHourRecord[];events:EventRecord[];onSaved:()=>Promise<void>}){const [form,setForm]=useState({activity:"",serviceDate:new Date().toISOString().slice(0,10),minutes:60,notes:"",eventId:""});const [message,setMessage]=useState("");async function submit(e:FormEvent){e.preventDefault();try{await api("/api/hours",{method:"POST",body:JSON.stringify({...form,eventId:form.eventId||null})});setMessage("Hours submitted for verification.");setForm({...form,activity:"",minutes:60,notes:"",eventId:""});await onSaved()}catch(error){setMessage(error instanceof Error?error.message:"Unable to submit")}}return <><PortalTitle eyebrow="SERVICE RECORD" title="My service hours."/><div className="workspace-grid"><form className="workspace-form" onSubmit={submit}><h3>Submit hours</h3><Notice message={message}/><label>Related event<select value={form.eventId} onChange={e=>{const found=events.find(x=>x.id===e.target.value);setForm({...form,eventId:e.target.value,activity:found?.title??form.activity,minutes:found?.service_minutes??form.minutes})}}><option value="">Other service activity</option>{events.map(x=><option value={x.id} key={x.id}>{x.title}</option>)}</select></label><label>Activity<input required value={form.activity} onChange={e=>setForm({...form,activity:e.target.value})}/></label><div className="two-fields"><label>Date<input required type="date" value={form.serviceDate} onChange={e=>setForm({...form,serviceDate:e.target.value})}/></label><label>Minutes<input required type="number" min="1" value={form.minutes} onChange={e=>setForm({...form,minutes:Number(e.target.value)})}/></label></div><label>Notes<textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label><button className="button ink">Submit for verification →</button></form><div className="workspace-list"><h3>History</h3>{hours.map(x=><article key={x.id}><div><b>{x.activity}</b><span>{x.service_date} · {(x.minutes/60).toFixed(1)} hours</span></div><em className={`status-${x.status}`}>{x.status}</em></article>)}</div></div></>}
-function StorySubmission({onSaved}:{onSaved:()=>void}){const [form,setForm]=useState({title:"",excerpt:"",body:"",coverUrl:""});const [message,setMessage]=useState("");async function submit(e:FormEvent){e.preventDefault();try{await api("/api/stories",{method:"POST",body:JSON.stringify(form)});setForm({title:"",excerpt:"",body:"",coverUrl:""});setMessage("Submitted. A webmaster will review your story before publication.");onSaved()}catch(error){setMessage(error instanceof Error?error.message:"Unable to submit")}}return <><PortalTitle eyebrow="STORIES IN ACTION" title="Share your experience."/><form className="workspace-form wide" onSubmit={submit}><Notice message={message}/><label>Story title<input required value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label>Short introduction<textarea value={form.excerpt} onChange={e=>setForm({...form,excerpt:e.target.value})}/></label><label>Your reflection<textarea className="story-body" required minLength={40} value={form.body} onChange={e=>setForm({...form,body:e.target.value})}/></label><label>Cover image URL<input value={form.coverUrl} onChange={e=>setForm({...form,coverUrl:e.target.value})} placeholder="Optional—use an uploaded media URL"/></label><button className="button ink">Submit for review →</button></form></>}
-function ProfileForm({user,onSaved}:{user:SessionUser;onSaved:()=>Promise<void>}){const [form,setForm]=useState({name:user.name,phone:user.phone,instrument:user.instrument});const [message,setMessage]=useState("");async function submit(e:FormEvent){e.preventDefault();try{await api("/api/profile",{method:"PATCH",body:JSON.stringify(form)});setMessage("Profile updated.");await onSaved()}catch(error){setMessage(error instanceof Error?error.message:"Unable to save")}}return <><PortalTitle eyebrow="MEMBER PROFILE" title="Your information."/><form className="workspace-form" onSubmit={submit}><Notice message={message}/><label>Name<input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label><label>Email<input disabled value={user.email}/></label><label>Phone<input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></label><label>Instrument<input value={form.instrument} onChange={e=>setForm({...form,instrument:e.target.value})}/></label><button className="button ink">Save profile →</button></form></>}
-function PortalTitle({eyebrow,title}:{eyebrow:string;title:string}){return <div className="section-heading portal-title"><div><p className="eyebrow"><span>♪</span>{eyebrow}</p><h2>{title}</h2></div></div>}
-
-type AdminTab="Overview"|"Site content"|"Media library"|"Stories"|"Events"|"Members"|"Service hours"|"Contact inbox"|"Settings";
-export function AdminPortal({navigate}:{navigate:Navigate}){
-  const [tab,setTab]=useState<AdminTab>("Overview");const [user,setUser]=useState<SessionUser|null>(null);const [dashboard,setDashboard]=useState<{members:number;verified_minutes:number;events:number;stories_pending:number}|null>(null);const [loading,setLoading]=useState(true);
-  const [menuOpen,setMenuOpen]=useState(false);
-  const refresh=useCallback(async()=>{try{const result=await api<{user:SessionUser;stats:{members:number;verified_minutes:number;events:number;stories_pending:number}}>("/api/dashboard");if(result.user.role==="member"){navigate("portal");return}setUser(result.user);setDashboard(result.stats)}catch{navigate("login")}finally{setLoading(false)}},[navigate]);
-  useEffect(()=>{refresh()},[refresh]); if(loading||!user||!dashboard)return <Loading/>;
-  const webmaster=user.role==="webmaster";const allowed:AdminTab[]=webmaster?["Overview","Site content","Media library","Stories","Events","Members","Service hours","Contact inbox","Settings"]:["Overview","Events","Members","Service hours"];
-  async function logout(){await api("/api/auth/logout",{method:"POST"});navigate("login")}
-  return <div className="admin-shell"><aside className={`admin-sidebar ${menuOpen?"workspace-menu-open":""}`}><AppLogo navigate={navigate}/><button className="workspace-menu-button" onClick={()=>setMenuOpen(!menuOpen)} aria-expanded={menuOpen} aria-controls="admin-workspace-navigation"><span>{menuOpen?"Close":"Menu"}</span><b aria-hidden="true">{menuOpen?"×":"☰"}</b></button><div className="role-pill">{user.role.replace("_"," ").toUpperCase()}</div><nav id="admin-workspace-navigation">{allowed.map((x,i)=><button key={x} className={tab===x?"selected":""} onClick={()=>{setTab(x);setMenuOpen(false)}}><span>{["⌂","✎","▧","☷","◫","♙","◴","✉","⚙"][i]}</span>{x}</button>)}</nav><button className="admin-exit" onClick={()=>navigate("home")}>↗ View website</button><button className="admin-exit" onClick={logout}>↪ Sign out</button></aside><main className="admin-main"><div className="admin-top"><div><p>{user.role.replace("_"," ").toUpperCase()}</p><h1>{tab}</h1></div><button className="admin-user" aria-label="Account menu">{user.name.split(" ").map(x=>x[0]).slice(0,2).join("")}</button></div>{tab==="Overview"&&<RealAdminOverview stats={dashboard} setTab={setTab} webmaster={webmaster}/>} {tab==="Events"&&<RealEventsAdmin onChange={refresh}/>} {tab==="Members"&&<RealMembersAdmin webmaster={webmaster}/>} {tab==="Service hours"&&<HoursAdmin/>} {tab==="Site content"&&webmaster&&<RealContentEditor/>} {tab==="Media library"&&webmaster&&<MediaAdmin/>} {tab==="Stories"&&webmaster&&<StoriesAdmin/>} {tab==="Contact inbox"&&webmaster&&<InboxAdmin/>} {tab==="Settings"&&webmaster&&<RealSettings/>}</main></div>
+function storyImageUrl(story: Partial<MemberStory> & Record<string, unknown>) {
+  return safeImageUrl(
+    String(story.cover_url ?? story.image_url ?? story.coverUrl ?? ""),
+  );
 }
-function RealAdminOverview({stats,setTab,webmaster}:{stats:{members:number;verified_minutes:number;events:number;stories_pending:number};setTab:(x:AdminTab)=>void;webmaster:boolean}){return <><div className="admin-welcome"><div><p>LIVE DATABASE</p><h2>Everything is<br/><em>in motion.</em></h2></div><button className="button coral" onClick={()=>setTab("Events")}>+ Create an event</button></div><div className="stat-cards">{[[stats.members,"Active volunteers"],[(stats.verified_minutes/60).toFixed(1),"Verified hours"],[stats.events,"Total events"],[stats.stories_pending,"Stories in review"]].map((x,i)=><article key={x[1]}><span>0{i+1}</span><b>{x[0]}</b><p>{x[1]}</p><small>Live</small></article>)}</div><div className="admin-grid"><section><div className="admin-section-head"><h3>Management</h3></div>{[["◫","Create and manage events","Events"],["✓","Verify volunteer hours","Service hours"],["♙","Manage members","Members"],...(webmaster?[["✎","Edit public website","Site content"]]:[])].map(x=><button className="quick-action" key={String(x[1])} onClick={()=>setTab(x[2] as AdminTab)}><span>{x[0]}</span>{x[1]}<span>→</span></button>)}</section><section><div className="admin-section-head"><h3>Permissions</h3></div><p className="admin-copy">Your role is enforced by the server on every data change. Hidden screens cannot be accessed by calling their APIs directly.</p></section></div></>}
-function RealEventsAdmin({onChange}:{onChange:()=>Promise<void>}){const [events,setEvents]=useState<EventRecord[]>([]);const [showForm,setShowForm]=useState(false);const [message,setMessage]=useState("");const [form,setForm]=useState({title:"",description:"",location:"",startsAt:"",endsAt:"",capacity:20,serviceMinutes:120,status:"open"});const load=useCallback(()=>api<{events:EventRecord[]}>("/api/events").then(x=>setEvents(x.events)),[]);useEffect(()=>{load()},[load]);async function submit(e:FormEvent){e.preventDefault();try{await api("/api/events",{method:"POST",body:JSON.stringify({...form,startsAt:new Date(form.startsAt).toISOString(),endsAt:new Date(form.endsAt).toISOString()})});setMessage("Event created.");setShowForm(false);await load();await onChange()}catch(error){setMessage(error instanceof Error?error.message:"Unable to create")}}async function update(id:string,status:string){await api(`/api/events/${id}`,{method:"PATCH",body:JSON.stringify({status})});await load()}async function remove(id:string){if(!confirm("Delete this event and its signups?"))return;await api(`/api/events/${id}`,{method:"DELETE"});await load();await onChange()}return <div className="table-card"><div className="table-toolbar"><div><h2>Volunteer events</h2><p>Events and signups are saved in the database.</p></div><button className="button coral" onClick={()=>setShowForm(!showForm)}>{showForm?"Cancel":"+ New event"}</button></div><Notice message={message}/>{showForm&&<form className="inline-admin-form" onSubmit={submit}><label>Event title<input required value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label>Location<input required value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></label><label>Starts<input required type="datetime-local" value={form.startsAt} onChange={e=>setForm({...form,startsAt:e.target.value})}/></label><label>Ends<input required type="datetime-local" value={form.endsAt} onChange={e=>setForm({...form,endsAt:e.target.value})}/></label><label>Capacity<input type="number" min="1" value={form.capacity} onChange={e=>setForm({...form,capacity:Number(e.target.value)})}/></label><label>Service minutes<input type="number" min="0" value={form.serviceMinutes} onChange={e=>setForm({...form,serviceMinutes:Number(e.target.value)})}/></label><label className="full">Description<textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></label><button className="button ink">Create event →</button></form>}<div className="responsive-table"><table><thead><tr><th>Event</th><th>Date</th><th>Signups</th><th>Status</th><th>Actions</th></tr></thead><tbody>{events.map(e=><tr key={e.id}><td><b>{e.title}</b><span>{e.location}</span></td><td>{new Date(e.starts_at).toLocaleString()}</td><td>{e.signup_count} / {e.capacity}</td><td><em>{e.status}</em></td><td><button onClick={()=>update(e.id,e.status==="open"?"closed":"open")}>{e.status==="open"?"Close":"Open"}</button><button className="danger-link" onClick={()=>remove(e.id)}>Delete</button></td></tr>)}</tbody></table></div></div>}
-type AdminUser=SessionUser&{verified_minutes:number;created_at:string};
-function RealMembersAdmin({webmaster}:{webmaster:boolean}){const [users,setUsers]=useState<AdminUser[]>([]);const [message,setMessage]=useState("");const load=useCallback(()=>api<{users:AdminUser[]}>("/api/users").then(x=>setUsers(x.users)),[]);useEffect(()=>{load()},[load]);async function update(id:string,change:Json){try{await api(`/api/users/${id}`,{method:"PATCH",body:JSON.stringify(change)});setMessage("Member updated.");await load()}catch(error){setMessage(error instanceof Error?error.message:"Unable to update")}}return <div className="table-card"><div className="table-toolbar"><div><h2>Members and administrators</h2><p>Account access and roles are enforced immediately.</p></div></div><Notice message={message}/><div className="responsive-table"><table><thead><tr><th>Member</th><th>Instrument</th><th>Hours</th><th>Status</th><th>Role</th></tr></thead><tbody>{users.map(x=><tr key={x.id}><td><b>{x.name}</b><span>{x.email}</span></td><td>{x.instrument||"—"}</td><td>{(x.verified_minutes/60).toFixed(1)} h</td><td><select value={x.status} onChange={e=>update(x.id,{status:e.target.value})}><option>active</option><option>pending</option><option>inactive</option></select></td><td>{webmaster?<select value={x.role} onChange={e=>update(x.id,{role:e.target.value})}><option value="member">member</option><option value="volunteer_admin">volunteer admin</option><option value="webmaster">webmaster</option></select>:x.role.replace("_"," ")}</td></tr>)}</tbody></table></div></div>}
-function HoursAdmin(){const [hours,setHours]=useState<ServiceHourRecord[]>([]);const [message,setMessage]=useState("");const load=useCallback(()=>api<{hours:ServiceHourRecord[]}>("/api/hours").then(x=>setHours(x.hours)),[]);useEffect(()=>{load()},[load]);async function decide(id:string,status:"verified"|"rejected"){await api(`/api/hours/${id}`,{method:"PATCH",body:JSON.stringify({status})});setMessage(`Hours ${status}.`);await load()}return <div className="table-card"><div className="table-toolbar"><div><h2>Service-hour review</h2><p>Verify or reject member submissions.</p></div></div><Notice message={message}/><div className="responsive-table"><table><thead><tr><th>Member</th><th>Activity</th><th>Date</th><th>Hours</th><th>Status / actions</th></tr></thead><tbody>{hours.map(x=><tr key={x.id}><td><b>{x.member_name}</b><span>{x.member_email}</span></td><td>{x.activity}<span>{x.notes}</span></td><td>{x.service_date}</td><td>{(x.minutes/60).toFixed(1)}</td><td>{x.status==="pending"?<><button onClick={()=>decide(x.id,"verified")}>Verify</button><button className="danger-link" onClick={()=>decide(x.id,"rejected")}>Reject</button></>:<em>{x.status}</em>}</td></tr>)}{!hours.length&&<tr><td colSpan={5}>No hour submissions yet.</td></tr>}</tbody></table></div></div>}
-function RealContentEditor(){const [entries,setEntries]=useState<ContentEntry[]>([]);const [page,setPage]=useState("Homepage");const [message,setMessage]=useState("");const load=useCallback(()=>api<{entries:ContentEntry[]}>("/api/content").then(x=>setEntries(x.entries)),[]);useEffect(()=>{load()},[load]);const pages=useMemo(()=>Array.from(new Set(entries.map(x=>x.page))),[entries]);async function save(){try{await api("/api/content",{method:"PUT",body:JSON.stringify({entries:entries.filter(x=>x.page===page).map(({key,value})=>({key,value}))})});setMessage("Published content saved. Reload the public site to see it.")}catch(error){setMessage(error instanceof Error?error.message:"Unable to save")}}return <div className="editor-layout"><aside><p>PAGE</p>{pages.map(x=><button key={x} className={page===x?"selected":""} onClick={()=>setPage(x)}>{x}<span>›</span></button>)}</aside><section className="editor-form"><div className="editor-head"><div><p>CONTENT MANAGEMENT</p><h2>{page}</h2></div><button className="button ink" onClick={save}>Save changes</button></div><Notice message={message}/>{entries.filter(x=>x.page===page).map(entry=><label key={entry.key}>{entry.label}{entry.field_type==="textarea"?<textarea value={entry.value} onChange={e=>setEntries(entries.map(x=>x.key===entry.key?{...x,value:e.target.value}:x))}/>:<input type={["email","url","number"].includes(entry.field_type)?entry.field_type:"text"} value={entry.value} onChange={e=>setEntries(entries.map(x=>x.key===entry.key?{...x,value:e.target.value}:x))}/>}<small>{entry.key}</small></label>)}</section></div>}
-type MediaAsset={id:string;filename:string;public_url:string;mime_type:string;byte_size:number;alt_text:string};
-function MediaAdmin(){const [assets,setAssets]=useState<MediaAsset[]>([]);const [file,setFile]=useState<File|null>(null);const [alt,setAlt]=useState("");const [message,setMessage]=useState("");const load=useCallback(()=>api<{assets:MediaAsset[]}>("/api/media").then(x=>setAssets(x.assets)),[]);useEffect(()=>{load()},[load]);async function upload(e:FormEvent){e.preventDefault();if(!file)return;const form=new FormData();form.set("file",file);form.set("altText",alt);try{await api("/api/media",{method:"POST",body:form});setMessage("Image uploaded. Its URL is ready to use in Site Content.");setFile(null);setAlt("");await load()}catch(error){setMessage(error instanceof Error?error.message:"Upload failed")}}return <><form className="media-upload" onSubmit={upload}><div><h2>Media library</h2><p>Upload website images up to 10 MB.</p></div><label>Image<input required type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={e=>setFile(e.target.files?.[0]??null)}/></label><label>Accessible description<input required value={alt} onChange={e=>setAlt(e.target.value)}/></label><button className="button coral">Upload image →</button></form><Notice message={message}/><div className="media-grid">{assets.map(x=><article key={x.id}><img src={x.public_url} alt={x.alt_text}/><div><b>{x.filename}</b><span>{(x.byte_size/1024).toFixed(0)} KB</span><button onClick={()=>navigator.clipboard.writeText(x.public_url)}>Copy URL</button></div></article>)}</div></>}
-type StoryRecord={id:string;title:string;excerpt:string;body:string;cover_url:string;status:string;author_name:string;created_at:string};
-function StoriesAdmin(){const [stories,setStories]=useState<StoryRecord[]>([]);const [message,setMessage]=useState("");const load=useCallback(()=>api<{stories:StoryRecord[]}>("/api/stories").then(x=>setStories(x.stories)),[]);useEffect(()=>{load()},[load]);async function decide(id:string,status:string){await api(`/api/stories/${id}`,{method:"PATCH",body:JSON.stringify({status})});setMessage(`Story ${status}.`);await load()}return <div className="review-list"><div className="table-toolbar"><div><h2>Student stories</h2><p>Review submissions before they appear publicly.</p></div></div><Notice message={message}/>{stories.map(x=><article key={x.id}><div>{x.cover_url&&<img src={x.cover_url} alt=""/>}<p>{x.author_name} · {x.status}</p><h3>{x.title}</h3><span>{x.excerpt}</span><details><summary>Read submission</summary><p>{x.body}</p></details></div><div><button onClick={()=>decide(x.id,"published")}>Publish</button><button onClick={()=>decide(x.id,"rejected")}>Reject</button></div></article>)}{!stories.length&&<div className="empty-row">No stories submitted yet.</div>}</div>}
-type ContactRecord={id:string;name:string;email:string;interest:string;message:string;status:string;created_at:string};
-function InboxAdmin(){const [messages,setMessages]=useState<ContactRecord[]>([]);useEffect(()=>{api<{messages:ContactRecord[]}>("/api/messages").then(x=>setMessages(x.messages))},[]);return <div className="review-list"><div className="table-toolbar"><div><h2>Contact inbox</h2><p>Messages submitted from the public Join page.</p></div></div>{messages.map(x=><article key={x.id}><div><p>{x.interest} · {new Date(x.created_at).toLocaleString()}</p><h3>{x.name}</h3><a href={`mailto:${x.email}`}>{x.email}</a><span>{x.message}</span></div><a className="button ink" href={`mailto:${x.email}`}>Reply</a></article>)}{!messages.length&&<div className="empty-row">No contact messages yet.</div>}</div>}
-function RealSettings(){const [settings,setSettings]=useState<Record<string,string>>({aws_region:"us-west-2",media_bucket:"inspire-with-music-media",from_email:"hello@inspirewithmusic.org"});const [database,setDatabase]=useState("");const [message,setMessage]=useState("");useEffect(()=>{api<{settings:Record<string,string>;database:{provider:string;connected:boolean}}>("/api/settings").then(x=>{setSettings(s=>({...s,...x.settings}));setDatabase(x.database.provider)})},[]);async function save(){try{await api("/api/settings",{method:"PUT",body:JSON.stringify({settings})});setMessage("Settings saved.")}catch(error){setMessage(error instanceof Error?error.message:"Unable to save")}}return <div className="settings-page"><div className="settings-note"><span>i</span><p><b>Secure infrastructure settings</b>Credentials remain server-only. Webmasters configure safe identifiers and connection labels here.</p></div><Notice message={message}/><section><div><p>INFRASTRUCTURE</p><h2>AWS environment</h2></div><div className="settings-fields"><label>AWS region<input value={settings.aws_region} onChange={e=>setSettings({...settings,aws_region:e.target.value})}/></label><label>Media bucket<input value={settings.media_bucket} onChange={e=>setSettings({...settings,media_bucket:e.target.value})}/></label><label>From email<input type="email" value={settings.from_email} onChange={e=>setSettings({...settings,from_email:e.target.value})}/></label><label>Database<div className="connection-ok">● Connected · {database}</div></label></div></section><button className="button ink" onClick={save}>Save settings →</button></div>}
+
+function AppLogo({
+  navigate,
+  inverse = true,
+}: {
+  navigate: Navigate;
+  inverse?: boolean;
+}) {
+  return (
+    <button
+      className={`logo ${inverse ? "logo-inverse" : ""}`}
+      onClick={() => navigate("home")}
+    >
+      <span className="logo-mark">
+        <i />
+        <i />
+        <i />
+        <i />
+      </span>
+      <span>
+        <b>INSPIRE</b>
+        <em>YOUTH IN SERVICE</em>
+      </span>
+    </button>
+  );
+}
+function Notice({
+  message,
+  error = false,
+}: {
+  message: string;
+  error?: boolean;
+}) {
+  return message ? (
+    <div className={`form-notice ${error ? "error" : "success"}`}>
+      {message}
+    </div>
+  ) : null;
+}
+function Loading() {
+  return (
+    <div className="portal-loading">
+      <span>♫</span>
+      <p>Loading your workspace…</p>
+    </div>
+  );
+}
+
+export function LoginApp({ navigate }: { navigate: Navigate }) {
+  const [mode, setMode] = useState<"signin" | "create">("signin");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    instrument: "",
+  });
+  const openWorkspace = useCallback(
+    (user: SessionUser) =>
+      navigate(
+        ["website_user", "member"].includes(user.role) ? "portal" : "admin",
+      ),
+    [navigate],
+  );
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const redirected = await completeGoogleRedirectLogin();
+        if (redirected) {
+          if (active) openWorkspace(redirected);
+          return;
+        }
+        const { user } = await api<{ user: SessionUser | null }>(
+          "/api/auth/session",
+        );
+        if (active && user) openWorkspace(user);
+      } catch (error) {
+        if (active)
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Unable to complete Google sign-in",
+          );
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [openWorkspace]);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const path = mode === "signin" ? "/api/auth/login" : "/api/auth/signup";
+      const result = await api<{
+        user: SessionUser | null;
+        verificationRequired?: boolean;
+      }>(path, { method: "POST", body: JSON.stringify(form) });
+      if (result.verificationRequired) {
+        setMode("signin");
+        setMessage(
+          "A verification email was sent. Verify it, then sign in to activate the webmaster account.",
+        );
+        return;
+      }
+      if (result.user)
+        navigate(
+          ["website_user", "member"].includes(result.user.role)
+            ? "portal"
+            : "admin",
+        );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to sign in");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function googleSignIn() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const user = await loginWithGoogle();
+      if (user) openWorkspace(user);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to sign in with Google",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="auth-page">
+      <div className="auth-photo">
+        <AppLogo navigate={navigate} />
+        <img src={officialImages.hero} alt="Youth orchestra performance" />
+        <div />
+        <blockquote>
+          “The best part of making music is discovering who it can reach.”
+        </blockquote>
+      </div>
+      <div className="auth-panel">
+        <button className="back-link" onClick={() => navigate("home")}>
+          ← Back to site
+        </button>
+        <div className="auth-box">
+          <p className="eyebrow">SECURE MEMBER PORTAL</p>
+          <h1>{mode === "signin" ? "Welcome back." : "Join the movement."}</h1>
+          <p>
+            {mode === "signin"
+              ? "Sign in to find events, manage your profile, and track service."
+              : "Create your volunteer account. Your information is stored securely."}
+          </p>
+          <Notice
+            message={message}
+            error={/unable|invalid|error|failed|incorrect|cancelled|blocked/i.test(
+              message,
+            )}
+          />
+          <button
+            className="google-auth-button"
+            type="button"
+            disabled={busy}
+            onClick={googleSignIn}
+          >
+            <span aria-hidden="true">G</span>
+            {mode === "signin" ? "Sign in with Google" : "Continue with Google"}
+          </button>
+          <div className="auth-divider">
+            <span>or use email and password</span>
+          </div>
+          <form onSubmit={submit}>
+            {mode === "create" && (
+              <>
+                <label>
+                  Full name
+                  <input
+                    required
+                    autoComplete="name"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Primary instrument
+                  <input
+                    value={form.instrument}
+                    onChange={(e) =>
+                      setForm({ ...form, instrument: e.target.value })
+                    }
+                    placeholder="Violin, cello, piano…"
+                  />
+                </label>
+              </>
+            )}
+            <label>
+              Email address
+              <input
+                required
+                autoComplete="username"
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+            </label>
+            <label>
+              Password
+              <input
+                required
+                autoComplete={
+                  mode === "signin" ? "current-password" : "new-password"
+                }
+                minLength={mode === "create" ? 10 : 1}
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+              />
+            </label>
+            <button className="button coral" disabled={busy}>
+              {busy
+                ? "Please wait…"
+                : mode === "signin"
+                  ? "Sign in →"
+                  : "Create account →"}
+            </button>
+          </form>
+          <div className="auth-switch">
+            {mode === "signin"
+              ? "New to Inspire With Music?"
+              : "Already a member?"}
+            <button
+              onClick={() => {
+                setMode(mode === "signin" ? "create" : "signin");
+                setMessage("");
+              }}
+            >
+              {mode === "signin" ? "Create an account" : "Sign in"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type MemberTab =
+  "Overview" | "Opportunities" | "My hours" | "Submit a story" | "My profile";
+export function MemberPortal({ navigate }: { navigate: Navigate }) {
+  const [tab, setTab] = useState<MemberTab>("Overview");
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [events, setEvents] = useState<EventRecord[]>([]);
+  const [hours, setHours] = useState<ServiceHourRecord[]>([]);
+  const [totals, setTotals] = useState({
+    verified_minutes: 0,
+    pending_minutes: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const [dash, eventData, hourData] = await Promise.all([
+        api<{
+          user: SessionUser;
+          totals: { verified_minutes: number; pending_minutes: number };
+        }>("/api/dashboard"),
+        api<{ events: EventRecord[] }>("/api/events"),
+        api<{ hours: ServiceHourRecord[] }>("/api/hours"),
+      ]);
+      if (!["website_user", "member"].includes(dash.user.role)) {
+        navigate("admin");
+        return;
+      }
+      setUser(dash.user);
+      setTotals(dash.totals);
+      setEvents(eventData.events);
+      setHours(hourData.hours);
+    } catch {
+      navigate("login");
+    } finally {
+      setLoading(false);
+    }
+  }, [navigate]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  async function logout() {
+    await api("/api/auth/logout", { method: "POST" });
+    navigate("login");
+  }
+  async function toggleSignup(event: EventRecord) {
+    setMessage("");
+    if (
+      event.is_signed_up &&
+      !confirm(`Cancel your signup for ${event.title}?`)
+    )
+      return;
+    try {
+      await api(`/api/events/${event.id}/signup`, {
+        method: event.is_signed_up ? "DELETE" : "POST",
+      });
+      setMessage(
+        event.is_signed_up ? "Signup cancelled." : "You are signed up!",
+      );
+      await load();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Unable to update signup",
+      );
+    }
+  }
+  if (loading || !user) return <Loading />;
+  const verifiedHours = totals.verified_minutes / 60;
+  return (
+    <div className="portal-shell">
+      <MemberSidebar
+        navigate={navigate}
+        tab={tab}
+        setTab={setTab}
+        logout={logout}
+        official={user.role === "member"}
+      />
+      <main className="portal-main">
+        <div className="portal-top">
+          <div>
+            <p>MEMBER WORKSPACE</p>
+            <h1>
+              Hello, <em>{user.name.split(" ")[0]}.</em>
+            </h1>
+          </div>
+          <button className="avatar">
+            {user.name
+              .split(" ")
+              .map((x) => x[0])
+              .slice(0, 2)
+              .join("")}
+          </button>
+        </div>
+        <Notice message={message} />
+        {tab === "Overview" && (
+          <MemberOverview
+            user={user}
+            events={events}
+            hours={hours}
+            verifiedHours={verifiedHours}
+            pendingMinutes={totals.pending_minutes}
+            toggleSignup={toggleSignup}
+            setTab={setTab}
+          />
+        )}{" "}
+        {tab === "Opportunities" && (
+          <Opportunities events={events} toggleSignup={toggleSignup} />
+        )}{" "}
+        {tab === "My hours" && <HoursPage hours={hours} onSaved={load} />}{" "}
+        {tab === "Submit a story" && user.role === "member" && (
+          <StorySubmission
+            onSaved={() => setMessage("Your story was submitted for review.")}
+          />
+        )}{" "}
+        {tab === "My profile" && <ProfileForm user={user} onSaved={load} />}
+      </main>
+    </div>
+  );
+}
+
+function MemberSidebar({
+  navigate,
+  tab,
+  setTab,
+  logout,
+  official,
+}: {
+  navigate: Navigate;
+  tab: MemberTab;
+  setTab: (x: MemberTab) => void;
+  logout: () => void;
+  official: boolean;
+}) {
+  const tabs: MemberTab[] = [
+    "Overview",
+    "Opportunities",
+    "My hours",
+    ...(official ? ["Submit a story" as const] : []),
+    "My profile",
+  ];
+  const [open, setOpen] = useState(false);
+  return (
+    <aside className={`portal-sidebar ${open ? "workspace-menu-open" : ""}`}>
+      <AppLogo navigate={navigate} />
+      <button
+        className="workspace-menu-button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls="member-workspace-navigation"
+      >
+        <span>{open ? "Close" : "Menu"}</span>
+        <b aria-hidden="true">{open ? "×" : "☰"}</b>
+      </button>
+      <nav id="member-workspace-navigation">
+        {tabs.map((x, i) => (
+          <button
+            key={x}
+            className={tab === x ? "selected" : ""}
+            onClick={() => {
+              setTab(x);
+              setOpen(false);
+            }}
+          >
+            <b>{["⌂", "◫", "◴", "✎", "♙"][i]}</b>
+            <span>{x}</span>
+          </button>
+        ))}
+      </nav>
+      <div>
+        <button onClick={() => navigate("home")}>
+          ↗ <span>View website</span>
+        </button>
+        <button onClick={logout}>
+          ↪ <span>Sign out</span>
+        </button>
+      </div>
+    </aside>
+  );
+}
+function MemberOverview({
+  user,
+  events,
+  hours,
+  verifiedHours,
+  pendingMinutes,
+  toggleSignup,
+  setTab,
+}: {
+  user: SessionUser;
+  events: EventRecord[];
+  hours: ServiceHourRecord[];
+  verifiedHours: number;
+  pendingMinutes: number;
+  toggleSignup: (x: EventRecord) => void;
+  setTab: (x: MemberTab) => void;
+}) {
+  return (
+    <>
+      <div className={`membership-banner ${user.membership_status}`}>
+        <div>
+          <b>
+            {user.membership_status === "official_member"
+              ? "Official member"
+              : "Website account"}
+          </b>
+          <p>
+            {user.membership_status === "official_member" ? (
+              "Your official membership is active. You can join all eligible volunteer opportunities."
+            ) : (
+              <>
+                To become an official Inspire With Music member, contact{" "}
+                <a href="mailto:inspirewithmusic.org@gmail.com">
+                  inspirewithmusic.org@gmail.com
+                </a>
+                .
+              </>
+            )}
+          </p>
+        </div>
+      </div>
+      <div className="portal-hero">
+        <div>
+          <p>YOUR VERIFIED IMPACT</p>
+          <b>{verifiedHours.toFixed(1)}</b>
+          <span>service hours</span>
+          <div className="progress">
+            <i
+              style={{ width: `${Math.min(100, (verifiedHours / 40) * 100)}%` }}
+            />
+          </div>
+          <small>
+            {(pendingMinutes / 60).toFixed(1)} hours awaiting verification
+          </small>
+        </div>
+        <span className="portal-note">♪</span>
+      </div>
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">
+            <span>♪</span>OPEN OPPORTUNITIES
+          </p>
+          <h2>Where will you make a difference next?</h2>
+        </div>
+        <button className="text-link" onClick={() => setTab("Opportunities")}>
+          View all →
+        </button>
+      </div>
+      <EventList
+        events={events.filter((x) => x.signup_open).slice(0, 3)}
+        toggleSignup={toggleSignup}
+      />
+      <div className="portal-bottom-grid">
+        <div className="hours-card">
+          <p className="eyebrow">RECENT SERVICE</p>
+          <h2>Your hours</h2>
+          {hours.slice(0, 4).map((x) => (
+            <div key={x.id}>
+              <span>{x.activity}</span>
+              <b>{(x.minutes / 60).toFixed(1)} h</b>
+              <em>{x.status}</em>
+            </div>
+          ))}
+          {!hours.length && <p>No hours submitted yet.</p>}
+          <button onClick={() => setTab("My hours")}>
+            View and submit hours →
+          </button>
+        </div>
+        {user.role === "member" && (
+          <div className="story-submit">
+            <span>✦</span>
+            <h2>Share your story</h2>
+            <p>Submit a reflection from your latest volunteer experience.</p>
+            <button onClick={() => setTab("Submit a story")}>
+              Start a submission →
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+function EventList({
+  events,
+  toggleSignup,
+}: {
+  events: EventRecord[];
+  toggleSignup: (x: EventRecord) => void;
+}) {
+  return (
+    <div className="event-list">
+      {events.map((event) => {
+        const date = new Date(event.starts_at);
+        const signupEnabled = Boolean(
+          event.can_signup || (event.is_signed_up && event.signup_open),
+        );
+        return (
+          <article key={event.id}>
+            <div className="event-date">
+              <b>{date.getDate()}</b>
+              <span>
+                {date.toLocaleString("en", { month: "short" }).toUpperCase()}
+              </span>
+            </div>
+            <div>
+              <h3>{event.title}</h3>
+              <p>
+                {date.toLocaleString([], {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}{" "}
+                · {event.location}
+              </p>
+            </div>
+            <span className="spots">
+              {event.audience === "official_members"
+                ? "Official members"
+                : "All users"}{" "}
+              · {Math.max(0, event.capacity - event.signup_count)} spots
+            </span>
+            <button
+              className={event.is_signed_up ? "joined" : ""}
+              disabled={!signupEnabled}
+              onClick={() => toggleSignup(event)}
+            >
+              {event.is_signed_up && event.signup_open
+                ? "Cancel signup"
+                : event.can_signup
+                  ? "Sign up →"
+                  : event.signup_block_reason || "Signup closed"}
+            </button>
+            <details className="member-event-details">
+              <summary>View event details</summary>
+              <div>
+                <p>
+                  {event.description || "More information will be added soon."}
+                </p>
+                <dl>
+                  <div>
+                    <dt>Starts</dt>
+                    <dd>
+                      {new Date(event.starts_at).toLocaleString([], {
+                        dateStyle: "full",
+                        timeStyle: "short",
+                      })}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Ends</dt>
+                    <dd>
+                      {new Date(event.ends_at).toLocaleString([], {
+                        dateStyle: "full",
+                        timeStyle: "short",
+                      })}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Location</dt>
+                    <dd>{event.location}</dd>
+                  </div>
+                  <div>
+                    <dt>Eligibility</dt>
+                    <dd>
+                      {event.audience === "official_members"
+                        ? "Official members only"
+                        : "All website users"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Service credit</dt>
+                    <dd>
+                      {(event.service_minutes / 60).toFixed(1)} hours after
+                      attendance is confirmed
+                    </dd>
+                  </div>
+                </dl>
+                {event.is_signed_up && (
+                  <strong>You are signed up for this event.</strong>
+                )}
+              </div>
+            </details>
+          </article>
+        );
+      })}
+      {!events.length && (
+        <div className="empty-row">No opportunities are open right now.</div>
+      )}
+    </div>
+  );
+}
+function Opportunities({
+  events,
+  toggleSignup,
+}: {
+  events: EventRecord[];
+  toggleSignup: (x: EventRecord) => void;
+}) {
+  return (
+    <>
+      <PortalTitle
+        eyebrow="VOLUNTEER OPPORTUNITIES"
+        title="Find your next event."
+      />
+      <EventList events={events} toggleSignup={toggleSignup} />
+    </>
+  );
+}
+function HoursPage({
+  hours,
+  onSaved,
+}: {
+  hours: ServiceHourRecord[];
+  onSaved: () => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    activity: "",
+    serviceDate: new Date().toISOString().slice(0, 10),
+    minutes: 60,
+    notes: "",
+  });
+  const [message, setMessage] = useState("");
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    try {
+      await api("/api/hours", {
+        method: "POST",
+        body: JSON.stringify(form),
+      });
+      setMessage("Hours submitted for verification.");
+      setForm({ ...form, activity: "", minutes: 60, notes: "" });
+      await onSaved();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to submit");
+    }
+  }
+  return (
+    <>
+      <PortalTitle eyebrow="SERVICE RECORD" title="My service hours." />
+      <div className="workspace-grid">
+        <form className="workspace-form" onSubmit={submit}>
+          <h3>Submit hours</h3>
+          <Notice message={message} />
+          <p className="event-hours-explainer">
+            Event hours appear automatically after an administrator confirms
+            your attendance. Use this form only for service completed outside a
+            listed event.
+          </p>
+          <label>
+            Activity
+            <input
+              required
+              value={form.activity}
+              onChange={(e) => setForm({ ...form, activity: e.target.value })}
+            />
+          </label>
+          <div className="two-fields">
+            <label>
+              Date
+              <input
+                required
+                type="date"
+                value={form.serviceDate}
+                onChange={(e) =>
+                  setForm({ ...form, serviceDate: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Minutes
+              <input
+                required
+                type="number"
+                min="1"
+                value={form.minutes}
+                onChange={(e) =>
+                  setForm({ ...form, minutes: Number(e.target.value) })
+                }
+              />
+            </label>
+          </div>
+          <label>
+            Notes
+            <textarea
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
+          </label>
+          <button className="button ink">Submit for verification →</button>
+        </form>
+        <div className="workspace-list">
+          <h3>History</h3>
+          {hours.map((x) => (
+            <article key={x.id}>
+              <div>
+                <b>{x.activity}</b>
+                <span>
+                  {x.service_date} · {(x.minutes / 60).toFixed(1)} hours
+                </span>
+              </div>
+              <em className={`status-${x.status}`}>{x.status}</em>
+            </article>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+function StorySubmission({ onSaved }: { onSaved: () => void }) {
+  type MemberStory = {
+    id: string;
+    title: string;
+    excerpt: string;
+    body: string;
+    cover_url: string;
+    status: string;
+    created_at: string;
+  };
+  const [form, setForm] = useState({
+    title: "",
+    excerpt: "",
+    body: "",
+    coverUrl: "",
+  });
+  const [stories, setStories] = useState<MemberStory[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const loadStories = useCallback(async () => {
+    const result = await api<{ stories: MemberStory[] }>("/api/stories");
+    setStories(result.stories);
+  }, []);
+  useEffect(() => {
+    void loadStories();
+  }, [loadStories]);
+  async function uploadCover(file: File) {
+    setMessage("");
+    setUploading(true);
+    try {
+      const optimized = await optimizeStoryImage(file);
+      const data = new FormData();
+      data.set("file", optimized);
+      const result = await api<{ public_url: string }>("/api/story-media", {
+        method: "POST",
+        body: data,
+      });
+      setForm((current) => ({ ...current, coverUrl: result.public_url }));
+      setMessage("Image uploaded and optimized.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Unable to upload image",
+      );
+    } finally {
+      setUploading(false);
+    }
+  }
+  function resetForm() {
+    setEditingId(null);
+    setForm({ title: "", excerpt: "", body: "", coverUrl: "" });
+  }
+  function editStory(story: MemberStory) {
+    if (story.status !== "submitted") return;
+    setEditingId(story.id);
+    setForm({
+      title: story.title,
+      excerpt: story.excerpt,
+      body: story.body,
+      coverUrl: story.cover_url,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    try {
+      await api(editingId ? `/api/stories/${editingId}` : "/api/stories", {
+        method: editingId ? "PATCH" : "POST",
+        body: JSON.stringify(form),
+      });
+      await loadStories();
+      resetForm();
+      setMessage(
+        editingId
+          ? "Your story was updated."
+          : "Submitted. A webmaster will review your story before publication.",
+      );
+      onSaved();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to submit");
+    }
+  }
+  async function deleteStory(story: MemberStory) {
+    if (
+      story.status !== "submitted" ||
+      !confirm(`Delete “${story.title}” permanently?`)
+    )
+      return;
+    try {
+      await api(`/api/stories/${story.id}`, { method: "DELETE" });
+      if (editingId === story.id) resetForm();
+      await loadStories();
+      setMessage("Your story was deleted.");
+      await onSaved();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Unable to delete story",
+      );
+    }
+  }
+  return (
+    <>
+      <PortalTitle eyebrow="STORIES IN ACTION" title="Share your experience." />
+      <form className="workspace-form wide" onSubmit={submit}>
+        <Notice message={message} />
+        <label>
+          Story title
+          <input
+            required
+            value={form.title}
+            onChange={(e) => setForm({ ...form, title: e.target.value })}
+          />
+        </label>
+        <label>
+          Short introduction
+          <textarea
+            value={form.excerpt}
+            onChange={(e) => setForm({ ...form, excerpt: e.target.value })}
+          />
+        </label>
+        <label>
+          Your reflection
+          <textarea
+            className="story-body"
+            required
+            minLength={40}
+            value={form.body}
+            onChange={(e) => setForm({ ...form, body: e.target.value })}
+          />
+        </label>
+        <label className="story-image-upload">
+          Story image
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void uploadCover(file);
+            }}
+          />
+          <small>
+            JPG, PNG, or WebP. Large images are resized automatically for faster
+            loading.
+          </small>
+        </label>
+        {safeImageUrl(form.coverUrl) && (
+          <img
+            className="story-cover-preview"
+            src={safeImageUrl(form.coverUrl)}
+            alt="Story cover preview"
+          />
+        )}
+        <div className="story-form-actions">
+          <button className="button ink" disabled={uploading}>
+            {uploading
+              ? "Optimizing image…"
+              : editingId
+                ? "Save story edits →"
+                : "Submit for review →"}
+          </button>
+          {editingId && (
+            <button
+              type="button"
+              className="outline-button"
+              onClick={resetForm}
+            >
+              Cancel edit
+            </button>
+          )}
+          {form.coverUrl && (
+            <button
+              type="button"
+              className="danger-link"
+              onClick={() => setForm({ ...form, coverUrl: "" })}
+            >
+              Remove image
+            </button>
+          )}
+        </div>
+      </form>
+      <section className="member-story-list">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">
+              <span>✎</span>YOUR SUBMISSIONS
+            </p>
+            <h2>Stories in progress.</h2>
+          </div>
+        </div>
+        {!stories.length && (
+          <div className="empty-row">
+            Your submitted stories will stay here for review.
+          </div>
+        )}
+        {stories.map((story) => (
+          <article key={story.id}>
+            {storyImageUrl(story) && (
+              <img
+                src={storyImageUrl(story)}
+                alt={`${story.title} cover`}
+                loading="lazy"
+              />
+            )}
+            <div>
+              <p className="eyebrow">{story.status}</p>
+              <h3>{story.title}</h3>
+              <p className="story-image-url">
+                {storyImageUrl(story)
+                  ? `Image URL: ${storyImageUrl(story)}`
+                  : "No valid uploaded image"}
+              </p>
+              <p>{story.excerpt}</p>
+              <details>
+                <summary>Read current version</summary>
+                <p>{story.body}</p>
+              </details>
+            </div>
+            {story.status === "submitted" && (
+              <div className="story-submission-actions">
+                <button
+                  className="outline-button"
+                  onClick={() => editStory(story)}
+                >
+                  Edit submission
+                </button>
+                <button
+                  className="danger-link"
+                  onClick={() => void deleteStory(story)}
+                >
+                  Delete submission
+                </button>
+              </div>
+            )}
+          </article>
+        ))}
+      </section>
+    </>
+  );
+}
+function ProfileForm({
+  user,
+  onSaved,
+}: {
+  user: SessionUser;
+  onSaved: () => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    name: user.name,
+    phone: user.phone,
+    instrument: user.instrument,
+  });
+  const [message, setMessage] = useState("");
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    try {
+      await api("/api/profile", {
+        method: "PATCH",
+        body: JSON.stringify(form),
+      });
+      setMessage("Profile updated.");
+      await onSaved();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save");
+    }
+  }
+  return (
+    <>
+      <PortalTitle eyebrow="MEMBER PROFILE" title="Your information." />
+      <form className="workspace-form" onSubmit={submit}>
+        <Notice message={message} />
+        <label>
+          Name
+          <input
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+        </label>
+        <label>
+          Email
+          <input disabled value={user.email} />
+        </label>
+        <label>
+          Phone
+          <input
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+          />
+        </label>
+        <label>
+          Instrument
+          <input
+            value={form.instrument}
+            onChange={(e) => setForm({ ...form, instrument: e.target.value })}
+          />
+        </label>
+        <button className="button ink">Save profile →</button>
+      </form>
+    </>
+  );
+}
+function PortalTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
+  return (
+    <div className="section-heading portal-title">
+      <div>
+        <p className="eyebrow">
+          <span>♪</span>
+          {eyebrow}
+        </p>
+        <h2>{title}</h2>
+      </div>
+    </div>
+  );
+}
+
+type AdminTab =
+  | "Overview"
+  | "Site content"
+  | "Media library"
+  | "Stories"
+  | "Events"
+  | "Members"
+  | "Service hours"
+  | "Contact inbox"
+  | "Settings";
+type AdminStats = {
+  members: number;
+  verified_minutes: number;
+  events: number;
+  stories_pending: number;
+  hours_pending: number;
+};
+const emptyAdminStats: AdminStats = {
+  members: 0,
+  verified_minutes: 0,
+  events: 0,
+  stories_pending: 0,
+  hours_pending: 0,
+};
+export function AdminPortal({ navigate }: { navigate: Navigate }) {
+  const [tab, setTab] = useState<AdminTab>("Overview");
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [dashboard, setDashboard] = useState<AdminStats>(emptyAdminStats);
+  const [loading, setLoading] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const refresh = useCallback(async () => {
+    try {
+      const result = await api<{ user: SessionUser; stats: AdminStats }>(
+        "/api/dashboard",
+      );
+      if (["website_user", "member"].includes(result.user.role)) {
+        navigate("portal");
+        return;
+      }
+      setUser(result.user);
+      setDashboard(result.stats);
+    } catch {
+      navigate("login");
+    }
+  }, [navigate]);
+  useEffect(() => {
+    let active = true;
+    api<{ user: SessionUser | null }>("/api/auth/session")
+      .then((result) => {
+        if (!active) return;
+        if (!result.user) return navigate("login");
+        if (["website_user", "member"].includes(result.user.role))
+          return navigate("portal");
+        setUser(result.user);
+        setLoading(false);
+        void refresh();
+      })
+      .catch(() => navigate("login"));
+    return () => {
+      active = false;
+    };
+  }, [navigate, refresh]);
+  if (loading || !user) return <Loading />;
+  const webmaster = user.role === "webmaster";
+  const allowed: AdminTab[] = webmaster
+    ? [
+        "Overview",
+        "Site content",
+        "Media library",
+        "Stories",
+        "Events",
+        "Members",
+        "Service hours",
+        "Contact inbox",
+        "Settings",
+      ]
+    : ["Overview", "Events", "Members", "Service hours"];
+  async function logout() {
+    await api("/api/auth/logout", { method: "POST" });
+    navigate("login");
+  }
+  return (
+    <div className="admin-shell">
+      <aside
+        className={`admin-sidebar ${menuOpen ? "workspace-menu-open" : ""}`}
+      >
+        <AppLogo navigate={navigate} />
+        <button
+          className="workspace-menu-button"
+          onClick={() => setMenuOpen(!menuOpen)}
+          aria-expanded={menuOpen}
+          aria-controls="admin-workspace-navigation"
+        >
+          <span>{menuOpen ? "Close" : "Menu"}</span>
+          <b aria-hidden="true">{menuOpen ? "×" : "☰"}</b>
+        </button>
+        <div className="role-pill">
+          {user.role.replace("_", " ").toUpperCase()}
+        </div>
+        <nav id="admin-workspace-navigation">
+          {allowed.map((x, i) => (
+            <button
+              key={x}
+              className={tab === x ? "selected" : ""}
+              onClick={() => {
+                setTab(x);
+                setMenuOpen(false);
+              }}
+            >
+              <span>{["⌂", "✎", "▧", "☷", "◫", "♙", "◴", "✉", "⚙"][i]}</span>
+              {x}
+            </button>
+          ))}
+        </nav>
+        <button className="admin-exit" onClick={() => navigate("home")}>
+          ↗ View website
+        </button>
+        <button className="admin-exit" onClick={logout}>
+          ↪ Sign out
+        </button>
+      </aside>
+      <main className="admin-main">
+        <div className="admin-top">
+          <div>
+            <p>{user.role.replace("_", " ").toUpperCase()}</p>
+            <h1>{tab}</h1>
+          </div>
+          <button className="admin-user" aria-label="Account menu">
+            {user.name
+              .split(" ")
+              .map((x) => x[0])
+              .slice(0, 2)
+              .join("")}
+          </button>
+        </div>
+        {tab === "Overview" && (
+          <RealAdminOverview
+            stats={dashboard}
+            setTab={setTab}
+            webmaster={webmaster}
+          />
+        )}{" "}
+        {tab === "Events" && (
+          <AdminEvents onDashboardChange={refresh} webmaster={webmaster} />
+        )}{" "}
+        {tab === "Members" && <RealMembersAdmin webmaster={webmaster} />}{" "}
+        {tab === "Service hours" && <HoursAdmin canReview={webmaster} />}{" "}
+        {tab === "Site content" && webmaster && <VisualContentEditor />}{" "}
+        {tab === "Media library" && webmaster && <MediaAdmin />}{" "}
+        {tab === "Stories" && webmaster && <StoriesAdmin />}{" "}
+        {tab === "Contact inbox" && webmaster && <InboxAdmin />}{" "}
+        {tab === "Settings" && webmaster && <RealSettings />}
+      </main>
+    </div>
+  );
+}
+function RealAdminOverview({
+  stats,
+  setTab,
+  webmaster,
+}: {
+  stats: AdminStats;
+  setTab: (x: AdminTab) => void;
+  webmaster: boolean;
+}) {
+  const cards = webmaster
+    ? [
+        [stats.members, "Active volunteers"],
+        [(stats.verified_minutes / 60).toFixed(1), "Verified hours"],
+        [stats.events, "Total events"],
+        [stats.stories_pending, "Stories in review"],
+      ]
+    : [
+        [stats.events, "Volunteer events"],
+        [(stats.verified_minutes / 60).toFixed(1), "Recorded hours"],
+        [stats.hours_pending, "Pending hour records"],
+      ];
+  const actions = webmaster
+    ? [
+        ["◫", "Create and manage events", "Events"],
+        ["✓", "Review volunteer hours", "Service hours"],
+        ["♙", "Manage members and roles", "Members"],
+        ["✎", "Edit public website", "Site content"],
+      ]
+    : [
+        ["◫", "Add volunteer events", "Events"],
+        ["◴", "View volunteer hours", "Service hours"],
+      ];
+  return (
+    <>
+      <div className="admin-welcome">
+        <div>
+          <p>{webmaster ? "WEBSITE CONTROL CENTER" : "VOLUNTEER OPERATIONS"}</p>
+          <h2>
+            {webmaster ? (
+              <>
+                Make updates.
+                <br />
+                <em>See them live.</em>
+              </>
+            ) : (
+              <>
+                Plan events.
+                <br />
+                <em>Track service.</em>
+              </>
+            )}
+          </h2>
+          <span className="admin-welcome-copy">
+            {webmaster
+              ? "Edit the public site visually, publish new images and content, and manage the organization from one workspace."
+              : "Create volunteer opportunities and keep service records organized."}
+          </span>
+        </div>
+        <div className="admin-welcome-actions">
+          <button
+            className="button coral"
+            onClick={() => setTab(webmaster ? "Site content" : "Events")}
+          >
+            {webmaster ? "✎ Edit website" : "+ Create an event"}
+          </button>
+          <button
+            className="button admin-welcome-secondary"
+            onClick={() => setTab("Events")}
+          >
+            Manage events →
+          </button>
+        </div>
+      </div>
+      <div className="stat-cards">
+        {cards.map((x, i) => (
+          <article key={String(x[1])}>
+            <span>0{i + 1}</span>
+            <b>{x[0]}</b>
+            <p>{x[1]}</p>
+            <small>Live</small>
+          </article>
+        ))}
+      </div>
+      <div className="admin-grid">
+        <section>
+          <div className="admin-section-head">
+            <h3>{webmaster ? "Management" : "Volunteer administration"}</h3>
+          </div>
+          {actions.map((x) => (
+            <button
+              className="quick-action"
+              key={String(x[1])}
+              onClick={() => setTab(x[2] as AdminTab)}
+            >
+              <span>{x[0]}</span>
+              {x[1]}
+              <span>→</span>
+            </button>
+          ))}
+        </section>
+        <section>
+          <div className="admin-section-head">
+            <h3>Permissions</h3>
+          </div>
+          <p className="admin-copy">
+            {webmaster
+              ? "The Webmaster has complete control of website content, programs, members, events, stories, messages, settings, and service-hour review."
+              : "Volunteer Admin access includes creating and editing events, managing signup rosters, confirming attendance, and viewing service hours."}
+          </p>
+        </section>
+      </div>
+    </>
+  );
+}
+type AdminUser = SessionUser & { verified_minutes: number; created_at: string };
+function RealMembersAdmin({ webmaster }: { webmaster: boolean }) {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [message, setMessage] = useState("");
+  const load = useCallback(
+    () =>
+      api<{ users: AdminUser[] }>("/api/users").then((x) => setUsers(x.users)),
+    [],
+  );
+  useEffect(() => {
+    load();
+  }, [load]);
+  async function update(id: string, change: Json) {
+    try {
+      await api(`/api/users/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(change),
+      });
+      setMessage("Account updated.");
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to update");
+    }
+  }
+  async function remove(id: string, name: string) {
+    if (
+      !confirm(
+        `Permanently remove ${name}? Their profile, service records, and event signups will be deleted.`,
+      )
+    )
+      return;
+    try {
+      await api(`/api/users/${id}`, { method: "DELETE" });
+      setUsers((current) => current.filter((user) => user.id !== id));
+      setMessage("User removed.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Unable to remove user",
+      );
+    }
+  }
+  return (
+    <div className="table-card">
+      <div className="table-toolbar">
+        <div>
+          <h2>Members and administrators</h2>
+          <p>
+            Approve website users as official members here. Only the Webmaster
+            can change account roles or access status.
+          </p>
+        </div>
+      </div>
+      <Notice message={message} />
+      <div className="responsive-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Member</th>
+              <th>Instrument</th>
+              <th>Hours</th>
+              <th>Membership</th>
+              <th>Status</th>
+              <th>Role</th>
+              {webmaster && <th>Actions</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((x) => {
+              const owner =
+                x.email.toLowerCase() === "inspirewithmusic.org@gmail.com";
+              return (
+                <tr key={x.id}>
+                  <td>
+                    <b>{x.name}</b>
+                    <span>{x.email}</span>
+                  </td>
+                  <td>{x.instrument || "—"}</td>
+                  <td>{(x.verified_minutes / 60).toFixed(1)} h</td>
+                  <td>
+                    <em>
+                      {x.role === "member" || owner
+                        ? "official member"
+                        : "website user"}
+                    </em>
+                  </td>
+                  <td>
+                    {owner || !webmaster ? (
+                      <em>active</em>
+                    ) : (
+                      <select
+                        value={x.status}
+                        onChange={(e) =>
+                          update(x.id, { status: e.target.value })
+                        }
+                      >
+                        <option>active</option>
+                        <option>pending</option>
+                        <option>inactive</option>
+                      </select>
+                    )}
+                  </td>
+                  <td>
+                    {owner || !webmaster ? (
+                      <em>
+                        {owner
+                          ? "webmaster · protected"
+                          : x.role.replace("_", " ")}
+                      </em>
+                    ) : (
+                      <select
+                        value={x.role}
+                        onChange={(e) => update(x.id, { role: e.target.value })}
+                      >
+                        <option value="website_user">website user</option>
+                        <option value="member">member</option>
+                        <option value="volunteer_admin">volunteer admin</option>
+                      </select>
+                    )}
+                  </td>
+                  {webmaster && (
+                    <td>
+                      {!owner && (
+                        <button
+                          className="danger-link"
+                          onClick={() => remove(x.id, x.name)}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+function HoursAdmin({ canReview }: { canReview: boolean }) {
+  const [hours, setHours] = useState<ServiceHourRecord[]>([]);
+  const [message, setMessage] = useState("");
+  const load = useCallback(
+    () =>
+      api<{ hours: ServiceHourRecord[] }>("/api/hours").then((x) =>
+        setHours(x.hours),
+      ),
+    [],
+  );
+  useEffect(() => {
+    load();
+  }, [load]);
+  async function decide(id: string, status: "verified" | "rejected") {
+    await api(`/api/hours/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    setMessage(`Hours ${status}.`);
+    await load();
+  }
+  return (
+    <div className="table-card">
+      <div className="table-toolbar">
+        <div>
+          <h2>
+            {canReview ? "Service-hour review" : "Volunteer service hours"}
+          </h2>
+          <p>
+            {canReview
+              ? "Verify or reject member submissions."
+              : "Read-only record of submitted volunteer hours."}
+          </p>
+        </div>
+      </div>
+      <Notice message={message} />
+      <div className="responsive-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Member</th>
+              <th>Activity</th>
+              <th>Date</th>
+              <th>Hours</th>
+              <th>{canReview ? "Status / actions" : "Status"}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {hours.map((x) => (
+              <tr key={x.id}>
+                <td>
+                  <b>{x.member_name}</b>
+                  <span>{x.member_email}</span>
+                </td>
+                <td>
+                  {x.activity}
+                  <span>{x.notes}</span>
+                </td>
+                <td>{x.service_date}</td>
+                <td>{(x.minutes / 60).toFixed(1)}</td>
+                <td>
+                  {canReview && x.status === "pending" ? (
+                    <>
+                      <button onClick={() => decide(x.id, "verified")}>
+                        Verify
+                      </button>
+                      <button
+                        className="danger-link"
+                        onClick={() => decide(x.id, "rejected")}
+                      >
+                        Reject
+                      </button>
+                    </>
+                  ) : (
+                    <em>{x.status}</em>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {!hours.length && (
+              <tr>
+                <td colSpan={5}>No hour submissions yet.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+type MediaAsset = {
+  id: string;
+  filename: string;
+  public_url: string;
+  mime_type: string;
+  byte_size: number;
+  alt_text: string;
+  category_id: string;
+  storage_path?: string;
+};
+type MediaCategory = { id: string; name: string; created_at: string };
+function MediaAdmin() {
+  const [assets, setAssets] = useState<MediaAsset[]>([]);
+  const [categories, setCategories] = useState<MediaCategory[]>([]);
+  const [file, setFile] = useState<File | null>(null);
+  const [alt, setAlt] = useState("");
+  const [filename, setFilename] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [newCategory, setNewCategory] = useState("");
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [categoryName, setCategoryName] = useState("");
+  const [editingAsset, setEditingAsset] = useState<string | null>(null);
+  const [assetEdit, setAssetEdit] = useState({
+    filename: "",
+    altText: "",
+    categoryId: "",
+  });
+  const [message, setMessage] = useState("");
+  const load = useCallback(
+    () =>
+      api<{ assets: MediaAsset[]; categories: MediaCategory[] }>(
+        "/api/media",
+      ).then((x) => {
+        setAssets(x.assets);
+        setCategories(x.categories);
+      }),
+    [],
+  );
+  useEffect(() => {
+    load();
+  }, [load]);
+  async function upload(e: FormEvent) {
+    e.preventDefault();
+    if (!file) return;
+    const form = new FormData();
+    try {
+      const optimized = await optimizeStoryImage(file);
+      form.set("file", optimized);
+      form.set("altText", alt);
+      form.set("filename", filename || optimized.name);
+      form.set("categoryId", categoryId);
+      await api("/api/media", { method: "POST", body: form });
+      setMessage("Image uploaded. Its URL is ready to use in Site Content.");
+      setFile(null);
+      setAlt("");
+      setFilename("");
+      setCategoryId("");
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Upload failed");
+    }
+  }
+  async function createCategory() {
+    if (!newCategory.trim()) return;
+    await api("/api/media/categories", {
+      method: "POST",
+      body: JSON.stringify({ name: newCategory }),
+    });
+    setNewCategory("");
+    setMessage("Category created.");
+    await load();
+  }
+  async function saveCategory(id: string) {
+    await api(`/api/media/categories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: categoryName }),
+    });
+    setEditingCategory(null);
+    setMessage("Category updated.");
+    await load();
+  }
+  async function removeCategory(id: string) {
+    if (
+      !confirm(
+        "Delete this category? Media will remain in the library as uncategorized.",
+      )
+    )
+      return;
+    await api(`/api/media/categories/${id}`, { method: "DELETE" });
+    setMessage("Category deleted.");
+    await load();
+  }
+  async function saveAsset(id: string) {
+    await api(`/api/media/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(assetEdit),
+    });
+    setEditingAsset(null);
+    setMessage("Media details updated.");
+    await load();
+  }
+  async function removeAsset(asset: MediaAsset) {
+    if (!confirm(`Delete ${asset.filename}?`)) return;
+    await api(`/api/media/${asset.id}`, { method: "DELETE" });
+    setMessage("Media deleted.");
+    await load();
+  }
+  return (
+    <>
+      <form className="media-upload" onSubmit={upload}>
+        <div>
+          <h2>Media library</h2>
+          <p>
+            Upload website images. Large images are optimized automatically.
+          </p>
+        </div>
+        <label>
+          Image
+          <input
+            required
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+        </label>
+        <label>
+          Accessible description
+          <input
+            required
+            value={alt}
+            onChange={(e) => setAlt(e.target.value)}
+          />
+        </label>
+        <label>
+          File name
+          <input
+            value={filename}
+            placeholder="Optional display name"
+            onChange={(e) => setFilename(e.target.value)}
+          />
+        </label>
+        <label>
+          Category
+          <select
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+          >
+            <option value="">Uncategorized</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="button coral">Upload image →</button>
+      </form>
+      <Notice message={message} />
+      <section className="media-category-manager">
+        <div>
+          <h3>Media categories</h3>
+          <p>Organize uploaded images for quick reuse in site content.</p>
+        </div>
+        <div className="media-category-create">
+          <input
+            value={newCategory}
+            placeholder="New category name"
+            onChange={(e) => setNewCategory(e.target.value)}
+          />
+          <button
+            className="outline-button"
+            onClick={() => void createCategory()}
+          >
+            Add category
+          </button>
+        </div>
+        <div className="media-category-list">
+          {categories.map((category) =>
+            editingCategory === category.id ? (
+              <div key={category.id}>
+                <input
+                  value={categoryName}
+                  onChange={(e) => setCategoryName(e.target.value)}
+                />
+                <button onClick={() => void saveCategory(category.id)}>
+                  Save
+                </button>
+                <button onClick={() => setEditingCategory(null)}>Cancel</button>
+              </div>
+            ) : (
+              <div key={category.id}>
+                <b>{category.name}</b>
+                <button
+                  onClick={() => {
+                    setEditingCategory(category.id);
+                    setCategoryName(category.name);
+                  }}
+                >
+                  Edit
+                </button>
+                <button
+                  className="danger-link"
+                  onClick={() => void removeCategory(category.id)}
+                >
+                  Delete
+                </button>
+              </div>
+            ),
+          )}
+        </div>
+      </section>
+      <div className="media-grid">
+        {assets.map((x) => (
+          <article key={x.id}>
+            <img src={x.public_url} alt={x.alt_text} />
+            <div>
+              <b>{x.filename}</b>
+              <span>
+                {categories.find((category) => category.id === x.category_id)
+                  ?.name || "Uncategorized"}
+              </span>
+              <span>{(x.byte_size / 1024).toFixed(0)} KB</span>
+              <div className="media-actions">
+                <button
+                  className="media-action-copy"
+                  onClick={() => navigator.clipboard.writeText(x.public_url)}
+                >
+                  Copy URL
+                </button>
+                <button
+                  className="media-action-edit"
+                  onClick={() => {
+                    setEditingAsset(x.id);
+                    setAssetEdit({
+                      filename: x.filename,
+                      altText: x.alt_text,
+                      categoryId: x.category_id || "",
+                    });
+                  }}
+                >
+                  Edit details
+                </button>
+                <button
+                  className="media-action-delete danger-link"
+                  onClick={() => void removeAsset(x)}
+                >
+                  Delete
+                </button>
+              </div>
+              {editingAsset === x.id && (
+                <div className="media-asset-editor">
+                  <input
+                    value={assetEdit.filename}
+                    onChange={(e) =>
+                      setAssetEdit({ ...assetEdit, filename: e.target.value })
+                    }
+                  />
+                  <input
+                    value={assetEdit.altText}
+                    onChange={(e) =>
+                      setAssetEdit({ ...assetEdit, altText: e.target.value })
+                    }
+                    placeholder="Alt text"
+                  />
+                  <select
+                    value={assetEdit.categoryId}
+                    onChange={(e) =>
+                      setAssetEdit({ ...assetEdit, categoryId: e.target.value })
+                    }
+                  >
+                    <option value="">Uncategorized</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button onClick={() => void saveAsset(x.id)}>Save</button>
+                </div>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    </>
+  );
+}
+type StoryRecord = {
+  id: string;
+  title: string;
+  excerpt: string;
+  body: string;
+  cover_url: string;
+  status: string;
+  author_name: string;
+  created_at: string;
+};
+function StoriesAdmin() {
+  const [stories, setStories] = useState<StoryRecord[]>([]);
+  const [message, setMessage] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    excerpt: "",
+    body: "",
+    coverUrl: "",
+  });
+  const load = useCallback(
+    () =>
+      api<{ stories: StoryRecord[] }>("/api/stories").then((x) =>
+        setStories(x.stories),
+      ),
+    [],
+  );
+  useEffect(() => {
+    load();
+  }, [load]);
+  async function decide(id: string, status: string) {
+    await api(`/api/stories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    setMessage(status === "rejected" ? "Story deleted." : `Story ${status}.`);
+    await load();
+  }
+  function beginEdit(story: StoryRecord) {
+    setEditing(story.id);
+    setEditForm({
+      title: story.title,
+      excerpt: story.excerpt,
+      body: story.body,
+      coverUrl: story.cover_url,
+    });
+  }
+  async function saveEdit(id: string) {
+    await api(`/api/stories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(editForm),
+    });
+    setEditing(null);
+    setMessage("Story updated.");
+    await load();
+  }
+  async function uploadEditImage(file: File) {
+    setUploadingImage(true);
+    try {
+      const optimized = await optimizeStoryImage(file);
+      const data = new FormData();
+      data.set("file", optimized);
+      const result = await api<{ public_url: string }>("/api/story-media", {
+        method: "POST",
+        body: data,
+      });
+      setEditForm((current) => ({ ...current, coverUrl: result.public_url }));
+      setMessage("Replacement image uploaded.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Unable to upload image",
+      );
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+  async function remove(id: string) {
+    if (!confirm("Delete this story permanently?")) return;
+    await api(`/api/stories/${id}`, { method: "DELETE" });
+    setMessage("Story deleted.");
+    await load();
+  }
+  return (
+    <div className="review-list">
+      <div className="table-toolbar">
+        <div>
+          <h2>Student stories</h2>
+          <p>Review submissions before they appear publicly.</p>
+        </div>
+      </div>
+      <Notice message={message} />
+      {stories.map((x) => (
+        <article key={x.id}>
+          <div>
+            {storyImageUrl(x) && (
+              <a
+                className="story-review-media"
+                href={storyImageUrl(x)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <img
+                  className="story-review-image"
+                  src={storyImageUrl(x)}
+                  alt={`${x.title} cover`}
+                  loading="lazy"
+                />
+                <span>Open uploaded image ↗</span>
+              </a>
+            )}
+            <p>
+              {x.author_name} · {x.status}
+            </p>
+            <h3>{x.title}</h3>
+            <p className="story-image-url">
+              {storyImageUrl(x)
+                ? `Image URL: ${storyImageUrl(x)}`
+                : "No valid uploaded image"}
+            </p>
+            <span>{x.excerpt}</span>
+            <details>
+              <summary>Read submission</summary>
+              <p>{x.body}</p>
+            </details>
+            {editing === x.id && (
+              <form
+                className="story-edit-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveEdit(x.id);
+                }}
+              >
+                <label>
+                  Title
+                  <input
+                    required
+                    value={editForm.title}
+                    onChange={(event) =>
+                      setEditForm({ ...editForm, title: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Introduction
+                  <textarea
+                    value={editForm.excerpt}
+                    onChange={(event) =>
+                      setEditForm({ ...editForm, excerpt: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Story
+                  <textarea
+                    required
+                    value={editForm.body}
+                    onChange={(event) =>
+                      setEditForm({ ...editForm, body: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Image URL
+                  <input
+                    value={editForm.coverUrl}
+                    onChange={(event) =>
+                      setEditForm({ ...editForm, coverUrl: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Replace image
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    disabled={uploadingImage}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void uploadEditImage(file);
+                    }}
+                  />
+                </label>
+                {safeImageUrl(editForm.coverUrl) && (
+                  <img
+                    className="story-cover-preview"
+                    src={safeImageUrl(editForm.coverUrl)}
+                    alt="Edited story cover preview"
+                  />
+                )}
+                <button className="button ink">Save edits</button>
+              </form>
+            )}
+          </div>
+          <div>
+            <button onClick={() => decide(x.id, "published")}>Publish</button>
+            <button onClick={() => decide(x.id, "rejected")}>Reject</button>
+            <button onClick={() => beginEdit(x)}>Edit</button>
+            <button className="danger-link" onClick={() => void remove(x.id)}>
+              Delete
+            </button>
+          </div>
+        </article>
+      ))}
+      {!stories.length && (
+        <div className="empty-row">No stories submitted yet.</div>
+      )}
+    </div>
+  );
+}
+type ContactRecord = {
+  id: string;
+  name: string;
+  email: string;
+  interest: string;
+  message: string;
+  status: string;
+  created_at: string;
+};
+function InboxAdmin() {
+  const [messages, setMessages] = useState<ContactRecord[]>([]);
+  useEffect(() => {
+    api<{ messages: ContactRecord[] }>("/api/messages").then((x) =>
+      setMessages(x.messages),
+    );
+  }, []);
+  return (
+    <div className="review-list">
+      <div className="table-toolbar">
+        <div>
+          <h2>Contact inbox</h2>
+          <p>Messages submitted from the public Join page.</p>
+        </div>
+      </div>
+      {messages.map((x) => (
+        <article key={x.id}>
+          <div>
+            <p>
+              {x.interest} · {new Date(x.created_at).toLocaleString()}
+            </p>
+            <h3>{x.name}</h3>
+            <a href={`mailto:${x.email}`}>{x.email}</a>
+            <span>{x.message}</span>
+          </div>
+          <a className="button ink" href={`mailto:${x.email}`}>
+            Reply
+          </a>
+        </article>
+      ))}
+      {!messages.length && (
+        <div className="empty-row">No contact messages yet.</div>
+      )}
+    </div>
+  );
+}
+function RealSettings() {
+  const [settings, setSettings] = useState<Record<string, string>>({
+    project_id: "inspirewithmusic123",
+    storage_bucket: "inspirewithmusic123.firebasestorage.app",
+    from_email: "hello@inspirewithmusic.org",
+  });
+  const [database, setDatabase] = useState("");
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    api<{
+      settings: Record<string, string>;
+      database: { provider: string; connected: boolean };
+    }>("/api/settings").then((x) => {
+      setSettings((s) => ({ ...s, ...x.settings }));
+      setDatabase(x.database.provider);
+    });
+  }, []);
+  async function save() {
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({ settings }),
+      });
+      setMessage("Settings saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save");
+    }
+  }
+  return (
+    <div className="settings-page">
+      <div className="settings-note">
+        <span>i</span>
+        <p>
+          <b>Firebase environment</b>Authentication, roles, content, program
+          data, events, and media are protected by deployed Firebase Security
+          Rules.
+        </p>
+      </div>
+      <Notice message={message} />
+      <section>
+        <div>
+          <p>FIREBASE</p>
+          <h2>Project connection</h2>
+        </div>
+        <div className="settings-fields">
+          <label>
+            Project ID
+            <input disabled value={settings.project_id} />
+          </label>
+          <label>
+            Storage bucket
+            <input disabled value={settings.storage_bucket} />
+          </label>
+          <label>
+            From email
+            <input
+              type="email"
+              value={settings.from_email}
+              onChange={(e) =>
+                setSettings({ ...settings, from_email: e.target.value })
+              }
+            />
+          </label>
+          <label>
+            Database
+            <div className="connection-ok">● Connected · {database}</div>
+          </label>
+        </div>
+      </section>
+      <button className="button ink" onClick={save}>
+        Save settings →
+      </button>
+    </div>
+  );
+}

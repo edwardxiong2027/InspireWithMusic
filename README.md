@@ -1,101 +1,78 @@
 # Inspire With Music
 
-Production-oriented website, member system, volunteer administration, and
-content management platform for InspireWithMusic.org.
+The public website and working volunteer platform for InspireWithMusic.org.
 
-## What works
+## Platform
 
-### Public website
+- Firebase Hosting for the public site and role-based portals
+- Firebase Authentication with email/password and Google accounts
+- Cloud Firestore for members, roles, events, signups, hours, stories, editable content, contacts, and settings
+- Cloud Storage for Firebase for webmaster image uploads
+- Firestore and Storage Security Rules for member, Volunteer Admin, and Webmaster permissions
 
-- Complete Home, About, Volunteers, Programs, Stories, Impact, Join, and Donate pages
-- Published student stories loaded from the database
-- Contact form and newsletter subscriptions saved to the database
-- Webmaster-managed copy, images, leaders, programs, impact totals, donation
-  details, links, organization identity, and footer information
-- Responsive desktop and mobile design
+## Roles
 
-### Members
+- **Member:** signs up for events, submits service hours and stories, and edits their profile
+- **Volunteer Admin:** creates volunteer events and has read-only access to submitted volunteer hours
+- **Webmaster:** the protected organization account with full control of content, programs, images, members, roles, events, hours, stories, messages, and settings
 
-- Real account registration and password login
-- Salted password hashes and revocable server-side sessions
-- Profile editing
-- Browse open volunteer events and sign up/cancel
-- Capacity enforcement and duplicate-signup prevention
-- Submit service hours and review verification status
-- Submit stories for Webmaster review
+The verified Firebase Authentication account using
+`inspirewithmusic.org@gmail.com` is securely bootstrapped as the only
+Webmaster. All other public registrations and Google sign-ins become Members.
+The Webmaster can promote an account to Volunteer Admin.
 
-### Volunteer Admin
-
-- Dedicated role with server-enforced permissions
-- Create, open, close, and delete simple volunteer events
-- Manage event capacity and signups
-- Manage member status and profile access
-- Review, verify, or reject service hours
-- Cannot access Webmaster content, media, settings, or role-management APIs
-
-### Webmaster
-
-- All Volunteer Admin capabilities
-- Edit public content by page
-- Edit site identity, donation methods, links, impact numbers, youth leaders,
-  program cards, and core page copy
-- Upload and reuse images
-- Review and publish student stories
-- Read contact-form submissions
-- Assign Member, Volunteer Admin, and Webmaster roles
-- Manage safe AWS environment identifiers and inspect connection health
-- Audit log records sensitive administrative changes
-
-## Local setup
-
-The application uses embedded PostgreSQL-compatible PGlite automatically for
-local development. No database server is required.
+## Local development
 
 ```bash
 npm install
-npm run db:seed
 npm run dev
 ```
 
-Open <http://localhost:3000>.
+The Next.js development shell runs at `http://localhost:3000`. The deployed
+Firebase build is a client-rendered application using the same components.
 
-Local seed accounts:
-
-| Role | Email | Development password |
-| --- | --- | --- |
-| Webmaster | `webmaster@inspirewithmusic.org` | `ChangeMe-Webmaster-2026!` |
-| Volunteer Admin | `volunteer-admin@inspirewithmusic.org` | `ChangeMe-Volunteer-2026!` |
-| Member | `member@inspirewithmusic.org` | `ChangeMe-Member-2026!` |
-
-These defaults work only for local setup. Production seeding requires explicit
-password environment variables. Change every seeded password before launch.
-
-## Commands
+## Validate
 
 ```bash
-npm run dev          # Full working application
-npm run build        # Production server build
-npm run start        # Start production server
-npm run build:pages  # Public static GitHub Pages preview
-npm run db:init      # Create/upgrade schema
-npm run db:seed      # Create initial roles and sample events
-npm test
 npm run lint
+npm test
+npm run build
+npm run build:firebase
 ```
 
-## Storage
+## Firebase setup and deployment
 
-- Local development: PGlite data under `data/` and uploaded files under `uploads/`
-- AWS: Aurora/RDS PostgreSQL through `DATABASE_URL` and private S3 through
-  `AWS_S3_BUCKET`
-- AWS credentials are supplied through an IAM task role, never through the browser
+1. Sign the Firebase CLI into the owner account:
 
-See [infra/aws/README.md](infra/aws/README.md) for deployment and
-[docs/AWS-ARCHITECTURE.md](docs/AWS-ARCHITECTURE.md) for the architecture and data model.
+   ```bash
+   firebase login:add
+   firebase login:use inspirewithmusic.org@gmail.com
+   ```
 
-## GitHub Pages
+2. Deploy the included configuration to enable **Email/Password** and **Google** Authentication.
+3. Create the default Cloud Firestore database if it does not already exist.
+4. Create Cloud Storage for Firebase. Firebase requires the Blaze plan for new
+   default Storage buckets.
+5. Deploy:
 
-GitHub Pages hosts the public visual preview only because it cannot execute a
-server, authenticate users, or write database records. The working application
-is the standard `npm run dev` / `npm run build` target and the same container is
-deployed to AWS.
+   ```bash
+   npm run firebase:deploy
+   ```
+
+The configuration targets Firebase project `inspirewithmusic123`. Firestore
+and Storage rules are deployed with the site. See
+[docs/FIREBASE-ARCHITECTURE.md](docs/FIREBASE-ARCHITECTURE.md).
+
+The production Firebase Authentication domain is `inspirewithmusic.org`, with
+the same-origin OAuth callback at
+`https://inspirewithmusic.org/__/auth/handler`. The default Firebase domains
+remain authorized for deployment previews.
+
+## Webmaster activation
+
+Open the deployed site and sign in with the Google account
+`inspirewithmusic.org@gmail.com`, or create an email/password account using
+that address and verify it. The secure rules allow only that verified identity
+to create the Webmaster profile and seed missing editable content. Production
+events are created only through the administration portal; no demo records are
+seeded.

@@ -1,0 +1,48 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function activeUser() {
+      return request.auth != null
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.status == "active";
+    }
+
+    function webmaster() {
+      return request.auth != null
+        && (
+          (request.auth.token.email == "inspirewithmusic.org@gmail.com"
+            && request.auth.token.email_verified == true)
+          || (
+            firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.status == "active"
+            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "webmaster"
+          )
+        );
+    }
+
+    function storyContributor() {
+      return activeUser()
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ["member", "webmaster"];
+    }
+
+    match /media/{fileName} {
+      allow read: if true;
+      allow create, update: if webmaster()
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches("image/.*");
+      allow delete: if webmaster();
+    }
+
+    match /story-submissions/{userId}/{fileName} {
+      allow read: if true;
+      allow create: if storyContributor()
+        && request.auth.uid == userId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches("image/.*");
+      allow update, delete: if webmaster();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

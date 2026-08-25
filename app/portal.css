@@ -1837,6 +1837,70 @@
   line-height: 1.5;
   margin: 4px 0;
 }
+.media-category-manager {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+.media-category-manager h3 {
+  margin: 0;
+  font: 600 20px var(--body);
+}
+.media-category-manager p {
+  margin: 5px 0 14px;
+  color: #68777e;
+  font-size: 13px;
+}
+.media-category-create {
+  display: flex;
+  gap: 10px;
+  max-width: 560px;
+}
+.media-category-create input,
+.media-category-list input,
+.media-asset-editor input,
+.media-asset-editor select {
+  border: 1px solid var(--line);
+  background: white;
+  padding: 9px 10px;
+  font-size: 13px;
+}
+.media-category-create input {
+  flex: 1;
+}
+.media-category-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  max-width: 700px;
+}
+.media-category-list > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.media-category-list b {
+  margin-right: auto;
+  font-size: 13px;
+}
+.media-category-list button,
+.media-asset-editor button {
+  border: 0;
+  background: none;
+  color: var(--coral);
+  font-size: 11px;
+  font-weight: 700;
+}
+.media-asset-editor {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--cream);
+}
 @media (max-width: 700px) {
   .member-story-list > article {
     grid-template-columns: 1fr;

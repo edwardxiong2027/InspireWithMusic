@@ -1588,17 +1588,35 @@ type MediaAsset = {
   mime_type: string;
   byte_size: number;
   alt_text: string;
+  category_id: string;
+  storage_path?: string;
 };
+type MediaCategory = { id: string; name: string; created_at: string };
 function MediaAdmin() {
   const [assets, setAssets] = useState<MediaAsset[]>([]);
+  const [categories, setCategories] = useState<MediaCategory[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [alt, setAlt] = useState("");
+  const [filename, setFilename] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [newCategory, setNewCategory] = useState("");
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [categoryName, setCategoryName] = useState("");
+  const [editingAsset, setEditingAsset] = useState<string | null>(null);
+  const [assetEdit, setAssetEdit] = useState({
+    filename: "",
+    altText: "",
+    categoryId: "",
+  });
   const [message, setMessage] = useState("");
   const load = useCallback(
     () =>
-      api<{ assets: MediaAsset[] }>("/api/media").then((x) =>
-        setAssets(x.assets),
-      ),
+      api<{ assets: MediaAsset[]; categories: MediaCategory[] }>(
+        "/api/media",
+      ).then((x) => {
+        setAssets(x.assets);
+        setCategories(x.categories);
+      }),
     [],
   );
   useEffect(() => {
@@ -1612,14 +1630,63 @@ function MediaAdmin() {
       const optimized = await optimizeStoryImage(file);
       form.set("file", optimized);
       form.set("altText", alt);
+      form.set("filename", filename || optimized.name);
+      form.set("categoryId", categoryId);
       await api("/api/media", { method: "POST", body: form });
       setMessage("Image uploaded. Its URL is ready to use in Site Content.");
       setFile(null);
       setAlt("");
+      setFilename("");
+      setCategoryId("");
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Upload failed");
     }
+  }
+  async function createCategory() {
+    if (!newCategory.trim()) return;
+    await api("/api/media/categories", {
+      method: "POST",
+      body: JSON.stringify({ name: newCategory }),
+    });
+    setNewCategory("");
+    setMessage("Category created.");
+    await load();
+  }
+  async function saveCategory(id: string) {
+    await api(`/api/media/categories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: categoryName }),
+    });
+    setEditingCategory(null);
+    setMessage("Category updated.");
+    await load();
+  }
+  async function removeCategory(id: string) {
+    if (
+      !confirm(
+        "Delete this category? Media will remain in the library as uncategorized.",
+      )
+    )
+      return;
+    await api(`/api/media/categories/${id}`, { method: "DELETE" });
+    setMessage("Category deleted.");
+    await load();
+  }
+  async function saveAsset(id: string) {
+    await api(`/api/media/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(assetEdit),
+    });
+    setEditingAsset(null);
+    setMessage("Media details updated.");
+    await load();
+  }
+  async function removeAsset(asset: MediaAsset) {
+    if (!confirm(`Delete ${asset.filename}?`)) return;
+    await api(`/api/media/${asset.id}`, { method: "DELETE" });
+    setMessage("Media deleted.");
+    await load();
   }
   return (
     <>
@@ -1647,21 +1714,149 @@ function MediaAdmin() {
             onChange={(e) => setAlt(e.target.value)}
           />
         </label>
+        <label>
+          File name
+          <input
+            value={filename}
+            placeholder="Optional display name"
+            onChange={(e) => setFilename(e.target.value)}
+          />
+        </label>
+        <label>
+          Category
+          <select
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+          >
+            <option value="">Uncategorized</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <button className="button coral">Upload image →</button>
       </form>
       <Notice message={message} />
+      <section className="media-category-manager">
+        <div>
+          <h3>Media categories</h3>
+          <p>Organize uploaded images for quick reuse in site content.</p>
+        </div>
+        <div className="media-category-create">
+          <input
+            value={newCategory}
+            placeholder="New category name"
+            onChange={(e) => setNewCategory(e.target.value)}
+          />
+          <button
+            className="outline-button"
+            onClick={() => void createCategory()}
+          >
+            Add category
+          </button>
+        </div>
+        <div className="media-category-list">
+          {categories.map((category) =>
+            editingCategory === category.id ? (
+              <div key={category.id}>
+                <input
+                  value={categoryName}
+                  onChange={(e) => setCategoryName(e.target.value)}
+                />
+                <button onClick={() => void saveCategory(category.id)}>
+                  Save
+                </button>
+                <button onClick={() => setEditingCategory(null)}>Cancel</button>
+              </div>
+            ) : (
+              <div key={category.id}>
+                <b>{category.name}</b>
+                <button
+                  onClick={() => {
+                    setEditingCategory(category.id);
+                    setCategoryName(category.name);
+                  }}
+                >
+                  Edit
+                </button>
+                <button
+                  className="danger-link"
+                  onClick={() => void removeCategory(category.id)}
+                >
+                  Delete
+                </button>
+              </div>
+            ),
+          )}
+        </div>
+      </section>
       <div className="media-grid">
         {assets.map((x) => (
           <article key={x.id}>
             <img src={x.public_url} alt={x.alt_text} />
             <div>
               <b>{x.filename}</b>
+              <span>
+                {categories.find((category) => category.id === x.category_id)
+                  ?.name || "Uncategorized"}
+              </span>
               <span>{(x.byte_size / 1024).toFixed(0)} KB</span>
               <button
                 onClick={() => navigator.clipboard.writeText(x.public_url)}
               >
                 Copy URL
               </button>
+              <button
+                onClick={() => {
+                  setEditingAsset(x.id);
+                  setAssetEdit({
+                    filename: x.filename,
+                    altText: x.alt_text,
+                    categoryId: x.category_id || "",
+                  });
+                }}
+              >
+                Edit details
+              </button>
+              <button
+                className="danger-link"
+                onClick={() => void removeAsset(x)}
+              >
+                Delete
+              </button>
+              {editingAsset === x.id && (
+                <div className="media-asset-editor">
+                  <input
+                    value={assetEdit.filename}
+                    onChange={(e) =>
+                      setAssetEdit({ ...assetEdit, filename: e.target.value })
+                    }
+                  />
+                  <input
+                    value={assetEdit.altText}
+                    onChange={(e) =>
+                      setAssetEdit({ ...assetEdit, altText: e.target.value })
+                    }
+                    placeholder="Alt text"
+                  />
+                  <select
+                    value={assetEdit.categoryId}
+                    onChange={(e) =>
+                      setAssetEdit({ ...assetEdit, categoryId: e.target.value })
+                    }
+                  >
+                    <option value="">Uncategorized</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button onClick={() => void saveAsset(x.id)}>Save</button>
+                </div>
+              )}
             </div>
           </article>
         ))}

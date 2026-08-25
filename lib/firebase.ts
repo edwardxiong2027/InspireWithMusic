@@ -32,7 +32,13 @@ import {
   writeBatch,
   type DocumentData,
 } from "firebase/firestore";
-import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
+import {
+  deleteObject,
+  getDownloadURL,
+  getStorage,
+  ref,
+  uploadBytes,
+} from "firebase/storage";
 import { defaultContentEntries, defaultContentMap } from "./content-defaults";
 import type {
   EventRecord,
@@ -1055,7 +1061,10 @@ export async function firebaseApi<T>(
 
     if (url === "/api/media" && method === "GET") {
       await requireSession(["webmaster"]);
-      const snapshot = await getDocs(collection(firestore, "media_assets"));
+      const [snapshot, categorySnapshot] = await Promise.all([
+        getDocs(collection(firestore, "media_assets")),
+        getDocs(collection(firestore, "media_categories")),
+      ]);
       return {
         assets: sortNewest(
           snapshot.docs.map((item) =>
@@ -1065,7 +1074,57 @@ export async function firebaseApi<T>(
             ),
           ),
         ),
+        categories: categorySnapshot.docs
+          .map((item) =>
+            withId<{ id: string; name: string; created_at: string }>(
+              item.id,
+              item.data(),
+            ),
+          )
+          .sort((a, b) => a.name.localeCompare(b.name)),
       } as T;
+    }
+    if (url === "/api/media/categories" && method === "POST") {
+      const session = await requireSession(["webmaster"]);
+      const name = String(input.name ?? "").trim();
+      if (!name) throw new Error("Enter a category name.");
+      const created = await addDoc(collection(firestore, "media_categories"), {
+        name,
+        created_by: session.id,
+        created_at: now(),
+        updated_at: now(),
+      });
+      return { id: created.id } as T;
+    }
+    const mediaCategoryMatch = url.match(/^\/api\/media\/categories\/([^/]+)$/);
+    if (mediaCategoryMatch) {
+      await requireSession(["webmaster"]);
+      const categoryRef = doc(
+        firestore,
+        "media_categories",
+        mediaCategoryMatch[1],
+      );
+      if (method === "PATCH") {
+        const name = String(input.name ?? "").trim();
+        if (!name) throw new Error("Enter a category name.");
+        await updateDoc(categoryRef, { name, updated_at: now() });
+        return { ok: true } as T;
+      }
+      if (method === "DELETE") {
+        const assets = await getDocs(
+          query(
+            collection(firestore, "media_assets"),
+            where("category_id", "==", mediaCategoryMatch[1]),
+          ),
+        );
+        const batch = writeBatch(firestore);
+        assets.docs.forEach((item) =>
+          batch.update(item.ref, { category_id: "", updated_at: now() }),
+        );
+        batch.delete(categoryRef);
+        await batch.commit();
+        return { ok: true } as T;
+      }
     }
     if (
       url === "/api/media" &&
@@ -1086,16 +1145,42 @@ export async function firebaseApi<T>(
       await uploadBytes(storageRef, file, { contentType: file.type });
       const publicUrl = await getDownloadURL(storageRef);
       const created = await addDoc(collection(firestore, "media_assets"), {
-        filename: file.name,
+        filename:
+          String(options.body.get("filename") ?? file.name).trim() || file.name,
         public_url: publicUrl,
         storage_path: storageRef.fullPath,
         mime_type: file.type,
         byte_size: file.size,
         alt_text: String(options.body.get("altText") ?? ""),
+        category_id: String(options.body.get("categoryId") ?? ""),
         uploaded_by: session.id,
         created_at: now(),
       });
       return { id: created.id, public_url: publicUrl } as T;
+    }
+    const mediaMatch = url.match(/^\/api\/media\/([^/]+)$/);
+    if (mediaMatch) {
+      await requireSession(["webmaster"]);
+      const assetRef = doc(firestore, "media_assets", mediaMatch[1]);
+      const assetSnapshot = await getDoc(assetRef);
+      if (!assetSnapshot.exists()) throw new Error("Media asset not found.");
+      if (method === "PATCH") {
+        const change: Json = { updated_at: now() };
+        if (input.filename !== undefined)
+          change.filename = String(input.filename).trim();
+        if (input.altText !== undefined)
+          change.alt_text = String(input.altText);
+        if (input.categoryId !== undefined)
+          change.category_id = String(input.categoryId);
+        await updateDoc(assetRef, change);
+        return { ok: true } as T;
+      }
+      if (method === "DELETE") {
+        const storagePath = String(assetSnapshot.data().storage_path ?? "");
+        if (storagePath) await deleteObject(ref(firebaseStorage, storagePath));
+        await deleteDoc(assetRef);
+        return { ok: true } as T;
+      }
     }
 
     if (url === "/api/messages" && method === "GET") {

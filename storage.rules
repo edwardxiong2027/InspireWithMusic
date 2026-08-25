@@ -26,9 +26,10 @@ service firebase.storage {
 
     match /media/{fileName} {
       allow read: if true;
-      allow write: if webmaster()
+      allow create, update: if webmaster()
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches("image/.*");
+      allow delete: if webmaster();
     }
 
     match /story-submissions/{userId}/{fileName} {

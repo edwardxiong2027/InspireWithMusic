@@ -9,8 +9,14 @@ service firebase.storage {
 
     function webmaster() {
       return request.auth != null
-        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.status == "active"
-        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "webmaster";
+        && (
+          (request.auth.token.email == "inspirewithmusic.org@gmail.com"
+            && request.auth.token.email_verified == true)
+          || (
+            firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.status == "active"
+            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "webmaster"
+          )
+        );
     }
 
     function storyContributor() {

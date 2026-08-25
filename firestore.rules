@@ -160,7 +160,7 @@ service cloud.firestore {
         && request.resource.data.author_id == request.auth.uid
         && request.resource.data.status == "submitted";
       allow update: if webmaster()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "reviewer_id", "published_at", "updated_at"]);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["title", "excerpt", "body", "cover_url", "status", "reviewer_id", "published_at", "updated_at"]);
       allow delete: if webmaster();
     }
 

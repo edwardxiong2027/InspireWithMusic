@@ -376,6 +376,7 @@ export function MemberPortal({ navigate }: { navigate: Navigate }) {
         tab={tab}
         setTab={setTab}
         logout={logout}
+        official={user.role === "member"}
       />
       <main className="portal-main">
         <div className="portal-top">
@@ -409,7 +410,7 @@ export function MemberPortal({ navigate }: { navigate: Navigate }) {
           <Opportunities events={events} toggleSignup={toggleSignup} />
         )}{" "}
         {tab === "My hours" && <HoursPage hours={hours} onSaved={load} />}{" "}
-        {tab === "Submit a story" && (
+        {tab === "Submit a story" && user.role === "member" && (
           <StorySubmission
             onSaved={() => setMessage("Your story was submitted for review.")}
           />
@@ -425,17 +426,19 @@ function MemberSidebar({
   tab,
   setTab,
   logout,
+  official,
 }: {
   navigate: Navigate;
   tab: MemberTab;
   setTab: (x: MemberTab) => void;
   logout: () => void;
+  official: boolean;
 }) {
   const tabs: MemberTab[] = [
     "Overview",
     "Opportunities",
     "My hours",
-    "Submit a story",
+    ...(official ? ["Submit a story" as const] : []),
     "My profile",
   ];
   const [open, setOpen] = useState(false);
@@ -565,14 +568,16 @@ function MemberOverview({
             View and submit hours →
           </button>
         </div>
-        <div className="story-submit">
-          <span>✦</span>
-          <h2>Share your story</h2>
-          <p>Submit a reflection from your latest volunteer experience.</p>
-          <button onClick={() => setTab("Submit a story")}>
-            Start a submission →
-          </button>
-        </div>
+        {user.role === "member" && (
+          <div className="story-submit">
+            <span>✦</span>
+            <h2>Share your story</h2>
+            <p>Submit a reflection from your latest volunteer experience.</p>
+            <button onClick={() => setTab("Submit a story")}>
+              Start a submission →
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
@@ -1506,9 +1511,10 @@ function MediaAdmin() {
     e.preventDefault();
     if (!file) return;
     const form = new FormData();
-    form.set("file", file);
-    form.set("altText", alt);
     try {
+      const optimized = await optimizeStoryImage(file);
+      form.set("file", optimized);
+      form.set("altText", alt);
       await api("/api/media", { method: "POST", body: form });
       setMessage("Image uploaded. Its URL is ready to use in Site Content.");
       setFile(null);
@@ -1523,7 +1529,9 @@ function MediaAdmin() {
       <form className="media-upload" onSubmit={upload}>
         <div>
           <h2>Media library</h2>
-          <p>Upload website images up to 10 MB.</p>
+          <p>
+            Upload website images. Large images are optimized automatically.
+          </p>
         </div>
         <label>
           Image
@@ -1577,6 +1585,13 @@ type StoryRecord = {
 function StoriesAdmin() {
   const [stories, setStories] = useState<StoryRecord[]>([]);
   const [message, setMessage] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    excerpt: "",
+    body: "",
+    coverUrl: "",
+  });
   const load = useCallback(
     () =>
       api<{ stories: StoryRecord[] }>("/api/stories").then((x) =>
@@ -1592,7 +1607,31 @@ function StoriesAdmin() {
       method: "PATCH",
       body: JSON.stringify({ status }),
     });
-    setMessage(`Story ${status}.`);
+    setMessage(status === "rejected" ? "Story deleted." : `Story ${status}.`);
+    await load();
+  }
+  function beginEdit(story: StoryRecord) {
+    setEditing(story.id);
+    setEditForm({
+      title: story.title,
+      excerpt: story.excerpt,
+      body: story.body,
+      coverUrl: story.cover_url,
+    });
+  }
+  async function saveEdit(id: string) {
+    await api(`/api/stories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(editForm),
+    });
+    setEditing(null);
+    setMessage("Story updated.");
+    await load();
+  }
+  async function remove(id: string) {
+    if (!confirm("Delete this story permanently?")) return;
+    await api(`/api/stories/${id}`, { method: "DELETE" });
+    setMessage("Story deleted.");
     await load();
   }
   return (
@@ -1607,7 +1646,14 @@ function StoriesAdmin() {
       {stories.map((x) => (
         <article key={x.id}>
           <div>
-            {x.cover_url && <img src={x.cover_url} alt="" />}
+            {x.cover_url && (
+              <img
+                className="story-review-image"
+                src={x.cover_url}
+                alt={`${x.title} cover`}
+                loading="lazy"
+              />
+            )}
             <p>
               {x.author_name} · {x.status}
             </p>
@@ -1617,10 +1663,63 @@ function StoriesAdmin() {
               <summary>Read submission</summary>
               <p>{x.body}</p>
             </details>
+            {editing === x.id && (
+              <form
+                className="story-edit-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveEdit(x.id);
+                }}
+              >
+                <label>
+                  Title
+                  <input
+                    required
+                    value={editForm.title}
+                    onChange={(event) =>
+                      setEditForm({ ...editForm, title: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Introduction
+                  <textarea
+                    value={editForm.excerpt}
+                    onChange={(event) =>
+                      setEditForm({ ...editForm, excerpt: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Story
+                  <textarea
+                    required
+                    value={editForm.body}
+                    onChange={(event) =>
+                      setEditForm({ ...editForm, body: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Image URL
+                  <input
+                    value={editForm.coverUrl}
+                    onChange={(event) =>
+                      setEditForm({ ...editForm, coverUrl: event.target.value })
+                    }
+                  />
+                </label>
+                <button className="button ink">Save edits</button>
+              </form>
+            )}
           </div>
           <div>
             <button onClick={() => decide(x.id, "published")}>Publish</button>
             <button onClick={() => decide(x.id, "rejected")}>Reject</button>
+            <button onClick={() => beginEdit(x)}>Edit</button>
+            <button className="danger-link" onClick={() => void remove(x.id)}>
+              Delete
+            </button>
           </div>
         </article>
       ))}

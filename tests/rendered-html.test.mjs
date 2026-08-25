@@ -71,6 +71,12 @@ test("ships the real Inspire With Music application", async () => {
   assert.match(portals, /To become an official Inspire With Music member/);
   assert.match(portals, /story-media/);
   assert.match(portals, /optimizeStoryImage/);
+  assert.match(portals, /Story image/);
+  assert.match(portals, /story-review-image/);
+  assert.match(portals, /Save edits/);
+  assert.match(portals, /Delete this story permanently/);
+  assert.match(firebase, /requireSession\(\["member"\]\)/);
+  assert.match(firebase, /status === "rejected"/);
   assert.match(firebase, /membership_status/);
   assert.match(firebase, /This event is no longer open for signup/);
   assert.match(storageRules, /story-submissions/);

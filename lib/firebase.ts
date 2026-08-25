@@ -18,6 +18,7 @@ import {
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -804,7 +805,7 @@ export async function firebaseApi<T>(
     if (url === "/api/hours" && method === "GET")
       return (await hoursResponse()) as T;
     if (url === "/api/hours" && method === "POST") {
-      const session = await requireSession(["website_user", "member"]);
+      const session = await requireSession(["member"]);
       const created = await addDoc(collection(firestore, "service_hours"), {
         user_id: session.id,
         event_id: null,
@@ -973,7 +974,7 @@ export async function firebaseApi<T>(
       } as T;
     }
     if (url === "/api/stories" && method === "POST") {
-      const session = await requireSession(["website_user", "member"]);
+      const session = await requireSession(["member"]);
       const created = await addDoc(collection(firestore, "stories"), {
         author_id: session.id,
         author_name: session.name,
@@ -993,7 +994,7 @@ export async function firebaseApi<T>(
       method === "POST" &&
       options?.body instanceof FormData
     ) {
-      const session = await requireSession(["website_user", "member"]);
+      const session = await requireSession(["member", "webmaster"]);
       const file = options.body.get("file");
       if (!(file instanceof File))
         throw new Error("Choose an image to upload.");
@@ -1010,15 +1011,27 @@ export async function firebaseApi<T>(
       return { public_url: await getDownloadURL(storageRef) } as T;
     }
     const storyMatch = url.match(/^\/api\/stories\/([^/]+)$/);
-    if (storyMatch && method === "PATCH") {
+    if (storyMatch && (method === "PATCH" || method === "DELETE")) {
       const reviewer = await requireSession(["webmaster"]);
+      if (method === "DELETE" || input.status === "rejected") {
+        await deleteDoc(doc(firestore, "stories", storyMatch[1]));
+        return { ok: true } as T;
+      }
       const status = String(input.status);
-      await updateDoc(doc(firestore, "stories", storyMatch[1]), {
-        status,
+      const change: Json = {
         reviewer_id: reviewer.id,
-        published_at: status === "published" ? now() : "",
         updated_at: now(),
-      });
+      };
+      if (input.title !== undefined) change.title = String(input.title);
+      if (input.excerpt !== undefined) change.excerpt = String(input.excerpt);
+      if (input.body !== undefined) change.body = String(input.body);
+      if (input.coverUrl !== undefined)
+        change.cover_url = String(input.coverUrl);
+      if (input.status !== undefined) {
+        change.status = status;
+        change.published_at = status === "published" ? now() : "";
+      }
+      await updateDoc(doc(firestore, "stories", storyMatch[1]), change);
       return { ok: true } as T;
     }
 

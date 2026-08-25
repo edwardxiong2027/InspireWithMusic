@@ -36,6 +36,13 @@ before(async () => {
       status: "active",
       membership_status: "website_user",
     });
+    await setDoc(doc(db, "users", "website-1"), {
+      email: "website@example.com",
+      name: "Website User",
+      role: "website_user",
+      status: "active",
+      membership_status: "website_user",
+    });
     await setDoc(doc(db, "users", "official-1"), {
       email: "official@example.com",
       name: "Official",
@@ -228,6 +235,29 @@ test("only the verified organization email can bootstrap a webmaster", async () 
       role: "webmaster",
       status: "active",
       membership_status: "official_member",
+    }),
+  );
+});
+
+test("website users cannot create stories, while approved members can", async () => {
+  const websiteUserDb = environment
+    .authenticatedContext("website-1", { email: "website@example.com" })
+    .firestore();
+  await assertFails(
+    setDoc(doc(websiteUserDb, "stories", "website-story"), {
+      author_id: "website-1",
+      status: "submitted",
+      title: "No access",
+    }),
+  );
+  const memberDb = environment
+    .authenticatedContext("official-1", { email: "official@example.com" })
+    .firestore();
+  await assertSucceeds(
+    setDoc(doc(memberDb, "stories", "member-story"), {
+      author_id: "official-1",
+      status: "submitted",
+      title: "A story",
     }),
   );
 });

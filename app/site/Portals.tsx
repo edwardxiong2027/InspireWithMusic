@@ -11,8 +11,9 @@ type Json = Record<string, unknown>;
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { ...options, headers: options?.body instanceof FormData ? options.headers : { "content-type":"application/json", ...options?.headers } });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "The request could not be completed");
+  let data: Json | null = null;
+  try { data = await response.json(); } catch { data = null; }
+  if (!response.ok || data === null) throw new Error((data && typeof data.error === "string" ? data.error : undefined) || "The request could not be completed. This portal requires the live application server.");
   return data as T;
 }
 

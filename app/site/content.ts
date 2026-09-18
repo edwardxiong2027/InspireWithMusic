@@ -7,10 +7,10 @@ export const officialImages = {
 };
 
 export const leaders = [
-  { name: "Avery Chen", role: "Youth President · Violin", image: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=700&q=85" },
-  { name: "Ethan Lin", role: "Program Lead · Cello", image: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=700&q=85" },
-  { name: "Mia Patel", role: "Community Lead · Piano", image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=700&q=85" },
-  { name: "Lucas Park", role: "Mentorship Lead · Viola", image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=700&q=85" },
+  { name: "Adam Liu", role: "Youth President · Violin", image: "/leaders/adam-liu.jpg" },
+  { name: "Kevin Wu", role: "Program Lead · Violin", image: "/leaders/kevin-wu.jpg" },
+  { name: "Bernard Zhang", role: "Community Lead · Cello", image: "/leaders/bernard-zhang.jpg" },
+  { name: "Jacquelyn Cheng", role: "Mentorship Lead · Viola", image: "/leaders/jacquelyn-cheng.jpg" },
 ];
 
 export const programs = [

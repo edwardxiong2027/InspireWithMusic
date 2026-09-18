@@ -4,6 +4,8 @@ export const officialImages = {
   stage: "https://static.wixstatic.com/media/d8edaa_8f163e2a9d3e466cab992bfe2ed9ed1e~mv2.png/v1/fill/w_1400,h_900,al_c,q_90/d8edaa_8f163e2a9d3e466cab992bfe2ed9ed1e~mv2.png",
   travel: "https://static.wixstatic.com/media/d8edaa_e7b941f2c3844ddd8aedd42821c0b449~mv2.png/v1/fill/w_1400,h_900,al_c,q_90/d8edaa_e7b941f2c3844ddd8aedd42821c0b449~mv2.png",
   orchestra: "https://static.wixstatic.com/media/d8edaa_6de39671de844d7e8566d56411634b75~mv2.png/v1/fill/w_1600,h_900,al_c,q_90/d8edaa_6de39671de844d7e8566d56411634b75~mv2.png",
+  storyPerformance: "/story/community-performance.jpg",
+  storyGroup: "/story/youth-group.jpg",
 };
 
 export const leaders = [

@@ -103,7 +103,7 @@ function Home() {
     </section>
 
     <section className="story-section">
-      <div className="story-image"><img src={officialImages.travel} alt="Youth musicians on a service journey"/><span className="vertical-label">OUR STORY · SINCE 2019</span></div>
+      <div className="story-image"><img src={officialImages.storyPerformance} alt="Youth musicians performing for a community audience"/><img src={officialImages.storyGroup} alt="Youth musicians celebrating together after a performance"/><span className="vertical-label">OUR STORY · SINCE 2019</span></div>
       <div className="story-copy"><p className="eyebrow"><span>04</span> OUR STORY</p><h2>{text("home.story_title","Every note has led us here.")}</h2><p>{text("home.story_body","From serving our local communities to connecting with audiences around the world, our journey has been shaped by music, service, and a growing community of young musicians.")}</p><div className="timeline"><div><b>2019</b><span>It begins</span></div><div><b>2022</b><span>Community grows</span></div><div><b>2025</b><span>Beyond borders</span></div><div className="now"><b>NOW</b><span>The next movement</span></div></div><button className="button ink" onClick={() => go("about")}>Follow our journey <Arrow /></button></div>
     </section>
 

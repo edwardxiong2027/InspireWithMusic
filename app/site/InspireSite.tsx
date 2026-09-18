@@ -76,6 +76,8 @@ function Home() {
   const cmsLeaders=json("home.leaders_json",leaders);
   const services=json<Array<{title:string;text:string;icon:string}>>("home.services_json",[["PERFORM", "Bringing music into our communities.", "♩"], ["TEACH", "Sharing music through lessons and workshops.", "♫"], ["MENTOR", "Helping young musicians learn and grow.", "♬"], ["SERVE", "Giving back through music and community projects.", "♪"]].map(x=>({title:x[0],text:x[1],icon:x[2]})));
   const cmsPrograms=json<Array<{number:string;title:string;text:string;image?:string}>>("programs.items_json",programs);
+  const cmsStoryImages=json<Array<{url:string;alt:string}>>("home.story_images_json",[{url:officialImages.storyPerformance,alt:"Youth musicians performing for a community audience"},{url:officialImages.storyGroup,alt:"Youth musicians celebrating together after a performance"}]);
+  const cmsStories=json<Array<{tag:string;title:string;excerpt:string;author:string;date:string;image:string}>>("home.stories_json",stories);
   return <>
     <section className="hero">
       <img src={text("home.hero_image",officialImages.hero)} alt="Youth string orchestra performing on stage" />
@@ -103,7 +105,7 @@ function Home() {
     </section>
 
     <section className="story-section">
-      <div className="story-image"><img src={officialImages.storyPerformance} alt="Youth musicians performing for a community audience"/><img src={officialImages.storyGroup} alt="Youth musicians celebrating together after a performance"/><span className="vertical-label">OUR STORY · SINCE 2019</span></div>
+      <div className="story-image" style={{gridTemplateRows:`repeat(${Math.max(cmsStoryImages.length,1)},1fr)`}}>{cmsStoryImages.map((photo,i)=><img key={i} src={photo.url} alt={photo.alt}/>)}<span className="vertical-label">OUR STORY · SINCE 2019</span></div>
       <div className="story-copy"><p className="eyebrow"><span>04</span> OUR STORY</p><h2>{text("home.story_title","Every note has led us here.")}</h2><p>{text("home.story_body","From serving our local communities to connecting with audiences around the world, our journey has been shaped by music, service, and a growing community of young musicians.")}</p><div className="timeline"><div><b>2019</b><span>It begins</span></div><div><b>2022</b><span>Community grows</span></div><div><b>2025</b><span>Beyond borders</span></div><div className="now"><b>NOW</b><span>The next movement</span></div></div><button className="button ink" onClick={() => go("about")}>Follow our journey <Arrow /></button></div>
     </section>
 
@@ -119,7 +121,7 @@ function Home() {
 
     <section className="stories-strip section-pad">
       <SectionHeading eyebrow="07 · STORIES IN ACTION" title="Listen closely. Every volunteer has a story." action="Read all stories" onAction={() => go("stories")}/>
-      <div className="story-cards">{stories.map(story => <article key={story.title}><img src={story.image} alt="Youth volunteer story"/><p>{story.tag}</p><h3>{story.title}</h3><button onClick={() => go("stories")}>Read story <Arrow /></button></article>)}</div>
+      <div className="story-cards">{cmsStories.map(story => <article key={story.title}><img src={story.image} alt="Youth volunteer story"/><p>{story.tag}</p><h3>{story.title}</h3><button onClick={() => go("stories")}>Read story <Arrow /></button></article>)}</div>
     </section>
 
     <section className="join-band"><div><p className="eyebrow light"><span>08</span> JOIN THE MOVEMENT</p><h2>{text("home.join_title","Your talent can change the tempo.")}</h2></div><div><p>Turn your love of music into meaningful service. There’s a place for your sound here.</p><button className="button coral" onClick={() => go("join")}>Find your place <Arrow /></button></div><span className="join-note" aria-hidden="true">♫</span></section>

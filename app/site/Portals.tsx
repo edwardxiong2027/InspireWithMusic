@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { ContentEntry, EventRecord, ServiceHourRecord, SessionUser } from "@/lib/types";
 import { officialImages } from "./content";
 
@@ -65,7 +65,52 @@ function RealEventsAdmin({onChange}:{onChange:()=>Promise<void>}){const [events,
 type AdminUser=SessionUser&{verified_minutes:number;created_at:string};
 function RealMembersAdmin({webmaster}:{webmaster:boolean}){const [users,setUsers]=useState<AdminUser[]>([]);const [message,setMessage]=useState("");const load=useCallback(()=>api<{users:AdminUser[]}>("/api/users").then(x=>setUsers(x.users)),[]);useEffect(()=>{load()},[load]);async function update(id:string,change:Json){try{await api(`/api/users/${id}`,{method:"PATCH",body:JSON.stringify(change)});setMessage("Member updated.");await load()}catch(error){setMessage(error instanceof Error?error.message:"Unable to update")}}return <div className="table-card"><div className="table-toolbar"><div><h2>Members and administrators</h2><p>Account access and roles are enforced immediately.</p></div></div><Notice message={message}/><div className="responsive-table"><table><thead><tr><th>Member</th><th>Instrument</th><th>Hours</th><th>Status</th><th>Role</th></tr></thead><tbody>{users.map(x=><tr key={x.id}><td><b>{x.name}</b><span>{x.email}</span></td><td>{x.instrument||"—"}</td><td>{(x.verified_minutes/60).toFixed(1)} h</td><td><select value={x.status} onChange={e=>update(x.id,{status:e.target.value})}><option>active</option><option>pending</option><option>inactive</option></select></td><td>{webmaster?<select value={x.role} onChange={e=>update(x.id,{role:e.target.value})}><option value="member">member</option><option value="volunteer_admin">volunteer admin</option><option value="webmaster">webmaster</option></select>:x.role.replace("_"," ")}</td></tr>)}</tbody></table></div></div>}
 function HoursAdmin(){const [hours,setHours]=useState<ServiceHourRecord[]>([]);const [message,setMessage]=useState("");const load=useCallback(()=>api<{hours:ServiceHourRecord[]}>("/api/hours").then(x=>setHours(x.hours)),[]);useEffect(()=>{load()},[load]);async function decide(id:string,status:"verified"|"rejected"){await api(`/api/hours/${id}`,{method:"PATCH",body:JSON.stringify({status})});setMessage(`Hours ${status}.`);await load()}return <div className="table-card"><div className="table-toolbar"><div><h2>Service-hour review</h2><p>Verify or reject member submissions.</p></div></div><Notice message={message}/><div className="responsive-table"><table><thead><tr><th>Member</th><th>Activity</th><th>Date</th><th>Hours</th><th>Status / actions</th></tr></thead><tbody>{hours.map(x=><tr key={x.id}><td><b>{x.member_name}</b><span>{x.member_email}</span></td><td>{x.activity}<span>{x.notes}</span></td><td>{x.service_date}</td><td>{(x.minutes/60).toFixed(1)}</td><td>{x.status==="pending"?<><button onClick={()=>decide(x.id,"verified")}>Verify</button><button className="danger-link" onClick={()=>decide(x.id,"rejected")}>Reject</button></>:<em>{x.status}</em>}</td></tr>)}{!hours.length&&<tr><td colSpan={5}>No hour submissions yet.</td></tr>}</tbody></table></div></div>}
-function RealContentEditor(){const [entries,setEntries]=useState<ContentEntry[]>([]);const [page,setPage]=useState("Homepage");const [message,setMessage]=useState("");const load=useCallback(()=>api<{entries:ContentEntry[]}>("/api/content").then(x=>setEntries(x.entries)),[]);useEffect(()=>{load()},[load]);const pages=useMemo(()=>Array.from(new Set(entries.map(x=>x.page))),[entries]);async function save(){try{await api("/api/content",{method:"PUT",body:JSON.stringify({entries:entries.filter(x=>x.page===page).map(({key,value})=>({key,value}))})});setMessage("Published content saved. Reload the public site to see it.")}catch(error){setMessage(error instanceof Error?error.message:"Unable to save")}}return <div className="editor-layout"><aside><p>PAGE</p>{pages.map(x=><button key={x} className={page===x?"selected":""} onClick={()=>setPage(x)}>{x}<span>›</span></button>)}</aside><section className="editor-form"><div className="editor-head"><div><p>CONTENT MANAGEMENT</p><h2>{page}</h2></div><button className="button ink" onClick={save}>Save changes</button></div><Notice message={message}/>{entries.filter(x=>x.page===page).map(entry=><label key={entry.key}>{entry.label}{entry.field_type==="textarea"?<textarea value={entry.value} onChange={e=>setEntries(entries.map(x=>x.key===entry.key?{...x,value:e.target.value}:x))}/>:<input type={["email","url","number"].includes(entry.field_type)?entry.field_type:"text"} value={entry.value} onChange={e=>setEntries(entries.map(x=>x.key===entry.key?{...x,value:e.target.value}:x))}/>}<small>{entry.key}</small></label>)}</section></div>}
+type ImageListField = { key: string; label: string };
+type ImageListConfig = { imageKey: string; fields: ImageListField[]; newItem: Json };
+const IMAGE_LIST_CONFIGS: Record<string, ImageListConfig> = {
+  "home.leaders_json": { imageKey: "image", fields: [{ key: "name", label: "Name" }, { key: "role", label: "Role" }], newItem: { name: "New leader", role: "", image: "" } },
+  "home.story_images_json": { imageKey: "url", fields: [{ key: "alt", label: "Description" }], newItem: { alt: "", url: "" } },
+  "programs.items_json": { imageKey: "image", fields: [{ key: "number", label: "Number" }, { key: "title", label: "Title" }, { key: "text", label: "Description" }], newItem: { number: "05", title: "New program", text: "", image: "" } },
+  "home.stories_json": { imageKey: "image", fields: [{ key: "tag", label: "Tag" }, { key: "title", label: "Title" }, { key: "excerpt", label: "Excerpt" }, { key: "author", label: "Author" }, { key: "date", label: "Date" }], newItem: { tag: "", title: "New story", excerpt: "", author: "", date: "", image: "" } },
+};
+
+function ImageListEditor({ entryKey, value, onChange }: { entryKey: string; value: string; onChange: (value: string) => void }) {
+  const config = IMAGE_LIST_CONFIGS[entryKey];
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  let items: Json[] = [];
+  try { items = JSON.parse(value || "[]"); } catch { items = []; }
+  function update(next: Json[]) { onChange(JSON.stringify(next)); }
+  function move(i: number, dir: -1 | 1) { const j = i + dir; if (j < 0 || j >= items.length) return; const next = [...items]; [next[i], next[j]] = [next[j], next[i]]; update(next); }
+  function remove(i: number) { if (!confirm("Remove this image?")) return; update(items.filter((_, x) => x !== i)); }
+  function editField(i: number, key: string, val: string) { update(items.map((it, x) => x === i ? { ...it, [key]: val } : it)); }
+  async function addImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]; if (!file) return; event.target.value = "";
+    setBusy(true); setMessage("");
+    try {
+      const form = new FormData(); form.set("file", file); form.set("altText", file.name);
+      const result = await api<{ asset: { public_url: string } }>("/api/media", { method: "POST", body: form });
+      update([...items, { ...config.newItem, [config.imageKey]: result.asset.public_url }]);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Upload failed"); }
+    finally { setBusy(false); }
+  }
+  if (!config) return null;
+  return <div className="image-list-editor">
+    <Notice message={message} error/>
+    <div className="image-list">{items.map((item, i) => <div className="image-list-item" key={i}>
+      <img src={String(item[config.imageKey] || "")} alt=""/>
+      <div className="image-list-fields">{config.fields.map(f => <label key={f.key}>{f.label}<input value={String(item[f.key] ?? "")} onChange={e => editField(i, f.key, e.target.value)}/></label>)}</div>
+      <div className="image-list-actions">
+        <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move earlier">↑</button>
+        <button type="button" onClick={() => move(i, 1)} disabled={i === items.length - 1} aria-label="Move later">↓</button>
+        <button type="button" className="danger-link" onClick={() => remove(i)}>Remove</button>
+      </div>
+    </div>)}</div>
+    <label className="image-list-add outline-button">{busy ? "Uploading…" : "+ Add image"}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: "none" }} disabled={busy} onChange={addImage}/></label>
+  </div>;
+}
+
+function RealContentEditor(){const [entries,setEntries]=useState<ContentEntry[]>([]);const [page,setPage]=useState("Homepage");const [message,setMessage]=useState("");const load=useCallback(()=>api<{entries:ContentEntry[]}>("/api/content").then(x=>setEntries(x.entries)),[]);useEffect(()=>{load()},[load]);const pages=useMemo(()=>Array.from(new Set(entries.map(x=>x.page))),[entries]);async function save(){try{await api("/api/content",{method:"PUT",body:JSON.stringify({entries:entries.filter(x=>x.page===page).map(({key,value})=>({key,value}))})});setMessage("Published content saved. Reload the public site to see it.")}catch(error){setMessage(error instanceof Error?error.message:"Unable to save")}}return <div className="editor-layout"><aside><p>PAGE</p>{pages.map(x=><button key={x} className={page===x?"selected":""} onClick={()=>setPage(x)}>{x}<span>›</span></button>)}</aside><section className="editor-form"><div className="editor-head"><div><p>CONTENT MANAGEMENT</p><h2>{page}</h2></div><button className="button ink" onClick={save}>Save changes</button></div><Notice message={message}/>{entries.filter(x=>x.page===page).map(entry=>IMAGE_LIST_CONFIGS[entry.key]?<div className="editor-field" key={entry.key}><p className="field-label">{entry.label}</p><ImageListEditor entryKey={entry.key} value={entry.value} onChange={v=>setEntries(entries.map(x=>x.key===entry.key?{...x,value:v}:x))}/><small>{entry.key}</small></div>:<label key={entry.key}>{entry.label}{entry.field_type==="textarea"?<textarea value={entry.value} onChange={e=>setEntries(entries.map(x=>x.key===entry.key?{...x,value:e.target.value}:x))}/>:<input type={["email","url","number"].includes(entry.field_type)?entry.field_type:"text"} value={entry.value} onChange={e=>setEntries(entries.map(x=>x.key===entry.key?{...x,value:e.target.value}:x))}/>}<small>{entry.key}</small></label>)}</section></div>}
 type MediaAsset={id:string;filename:string;public_url:string;mime_type:string;byte_size:number;alt_text:string};
 function MediaAdmin(){const [assets,setAssets]=useState<MediaAsset[]>([]);const [file,setFile]=useState<File|null>(null);const [alt,setAlt]=useState("");const [message,setMessage]=useState("");const load=useCallback(()=>api<{assets:MediaAsset[]}>("/api/media").then(x=>setAssets(x.assets)),[]);useEffect(()=>{load()},[load]);async function upload(e:FormEvent){e.preventDefault();if(!file)return;const form=new FormData();form.set("file",file);form.set("altText",alt);try{await api("/api/media",{method:"POST",body:form});setMessage("Image uploaded. Its URL is ready to use in Site Content.");setFile(null);setAlt("");await load()}catch(error){setMessage(error instanceof Error?error.message:"Upload failed")}}return <><form className="media-upload" onSubmit={upload}><div><h2>Media library</h2><p>Upload website images up to 10 MB.</p></div><label>Image<input required type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={e=>setFile(e.target.files?.[0]??null)}/></label><label>Accessible description<input required value={alt} onChange={e=>setAlt(e.target.value)}/></label><button className="button coral">Upload image →</button></form><Notice message={message}/><div className="media-grid">{assets.map(x=><article key={x.id}><img src={x.public_url} alt={x.alt_text}/><div><b>{x.filename}</b><span>{(x.byte_size/1024).toFixed(0)} KB</span><button onClick={()=>navigator.clipboard.writeText(x.public_url)}>Copy URL</button></div></article>)}</div></>}
 type StoryRecord={id:string;title:string;excerpt:string;body:string;cover_url:string;status:string;author_name:string;created_at:string};
